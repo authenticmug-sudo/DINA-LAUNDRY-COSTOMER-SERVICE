@@ -1,0 +1,166 @@
+{
+  "entities": {
+    "FollowUp": {
+      "title": "Follow Up",
+      "description": "Data tracking follow-up konsumen laundry",
+      "type": "object",
+      "properties": {
+        "date": {
+          "type": "string",
+          "format": "date",
+          "description": "Tanggal follow up dilakukan"
+        },
+        "customerName": {
+          "type": "string",
+          "description": "Nama konsumen yang di-follow up"
+        },
+        "customerPhone": {
+          "type": "string",
+          "description": "Nomor WhatsApp/HP konsumen"
+        },
+        "pic": {
+          "type": "string",
+          "description": "Nama person in charge (PIC) yang melakukan follow up"
+        },
+        "caption": {
+          "type": "string",
+          "description": "Isi pesan atau hasil follow up"
+        },
+        "screenshotUrl": {
+          "type": "string",
+          "description": "URL screenshot bukti follow up di Cloudinary"
+        },
+        "monthYear": {
+          "type": "string",
+          "description": "Bulan dan tahun follow up (MM-YYYY) untuk pengelompokan"
+        },
+        "timestamp": {
+          "type": "string",
+          "format": "date-time",
+          "description": "Waktu data diinput ke sistem"
+        }
+      },
+      "required": ["date", "customerName", "customerPhone", "pic", "caption", "screenshotUrl", "monthYear", "timestamp"]
+    },
+    "Progress": {
+      "title": "Progress Follow Up",
+      "description": "Data hasil pengecekan follow up setelah 4 hari",
+      "type": "object",
+      "properties": {
+        "followupId": {
+          "type": "string",
+          "description": "ID data follow up asal"
+        },
+        "customerName": {
+          "type": "string",
+          "description": "Nama konsumen"
+        },
+        "outcome": {
+          "type": "string",
+          "enum": ["Ada feedback", "Tidak ada respon", "Konsumen respon tapi tidak ada feedback"],
+          "description": "Hasil akhir follow up"
+        },
+        "channels": {
+          "type": "array",
+          "items": { "type": "string" },
+          "description": "Media feedback (WhatsApp, Google, Instagram)"
+        },
+        "pic": {
+          "type": "string",
+          "description": "Nama PIC Progress"
+        },
+        "date": {
+          "type": "string",
+          "format": "date",
+          "description": "Tanggal progress dilakukan"
+        },
+        "caption": {
+          "type": "string",
+          "description": "Keterangan tambahan"
+        },
+        "screenshotUrl": {
+          "type": "string",
+          "description": "URL screenshot bukti progress di Cloudinary"
+        },
+        "monthYear": {
+          "type": "string",
+          "description": "Bulan dan tahun progress (MM-YYYY)"
+        },
+        "timestamp": {
+          "type": "string",
+          "format": "date-time"
+        }
+      },
+      "required": ["followupId", "customerName", "outcome", "channels", "pic", "date", "caption", "screenshotUrl", "monthYear", "timestamp"]
+    },
+    "Voucher": {
+      "title": "Voucher & Promo",
+      "description": "Data voucher diskon atau promo unik laundry",
+      "type": "object",
+      "properties": {
+        "code": {
+          "type": "string",
+          "description": "Kode voucher unik (uppercase alphanumeric)"
+        },
+        "type": {
+          "type": "string",
+          "enum": ["Discount %", "Nominal Potongan", "Free Item"],
+          "description": "Tipe benefit voucher"
+        },
+        "value": {
+          "type": "string",
+          "description": "Nilai benefit (misal '10', '15000', 'Free Setrika 1kg')"
+        },
+        "minTransaction": {
+          "type": "number",
+          "description": "Minimal transaksi untuk menggunakan voucher (0 jika tidak ada)"
+        },
+        "expiryDate": {
+          "type": "string",
+          "format": "date",
+          "description": "Tanggal kedaluwarsa voucher (YYYY-MM-DD)"
+        },
+        "isRedeemed": {
+          "type": "boolean",
+          "description": "Status apakah voucher sudah diredeem"
+        },
+        "redeemedAt": {
+          "type": "string",
+          "description": "Waktu penukaran voucher"
+        },
+        "redeemedBy": {
+          "type": "string",
+          "description": "Nama PIC / Admin yang mereveal/scan voucher"
+        },
+        "customerName": {
+          "type": "string",
+          "description": "Nama konsumen yang menggunakan voucher (opsional)"
+        },
+        "customerPhone": {
+          "type": "string",
+          "description": "Nomor WhatsApp/HP konsumen (opsional)"
+        },
+        "createdAt": {
+          "type": "string",
+          "format": "date-time",
+          "description": "Waktu pembuatan voucher"
+        }
+      },
+      "required": ["code", "type", "value", "minTransaction", "expiryDate", "isRedeemed", "createdAt"]
+    }
+  },
+  "firestore": {
+    "followups/{followupId}": {
+      "schema": "FollowUp",
+      "description": "Koleksi data follow up konsumen"
+    },
+    "progress/{progressId}": {
+      "schema": "Progress",
+      "description": "Koleksi data progress follow up"
+    },
+    "vouchers/{voucherId}": {
+      "schema": "Voucher",
+      "description": "Koleksi data voucher diskon dan promo"
+    }
+  }
+}
