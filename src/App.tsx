@@ -1050,8 +1050,54 @@ export default function App() {
 
   return (
     <div className="flex flex-col md:flex-row h-screen w-full bg-natural-bg overflow-hidden font-sans">
-      {/* Sidebar */}
-      <aside className="w-full md:w-64 border-r border-natural-border bg-white p-6 flex flex-col justify-between overflow-y-auto">
+      {/* Mobile Top Navigation */}
+      <header className="flex md:hidden flex-col border-b border-natural-border bg-white px-4 py-2.5 gap-2.5 w-full shrink-0 z-10 shadow-sm">
+        <div className="flex items-center justify-between">
+          <div className="flex items-center gap-2">
+            <div className="w-8 h-8 bg-natural-primary rounded-lg flex items-center justify-center">
+              <CheckCircle2 className="w-5 h-5 text-white" />
+            </div>
+            <div>
+              <h1 className="font-serif text-sm font-bold text-natural-text-dark leading-tight">Dina Laundry CS Tracking</h1>
+              <p className="text-[8px] text-natural-text-muted uppercase tracking-wider">CS Follow-up Tracker</p>
+            </div>
+          </div>
+          <div className="flex items-center gap-1.5 px-2 py-1 bg-gray-50 rounded-lg border border-gray-100">
+            <div className="w-5 h-5 rounded-full bg-natural-border flex items-center justify-center text-natural-text-dark font-bold text-[9px]">GP</div>
+            <span className="text-[9px] font-semibold text-natural-text-dark">Gean</span>
+          </div>
+        </div>
+        
+        {/* Horizontal scrollable category list */}
+        <nav 
+          className="flex items-center gap-2 overflow-x-auto py-0.5 -mx-4 px-4"
+          style={{ scrollbarWidth: 'none', msOverflowStyle: 'none' }}
+        >
+          {CATEGORIES.map((cat, idx) => {
+            const isActive = activeTab === cat;
+            return (
+              <button
+                key={`nav-item-mobile-${cat}`}
+                onClick={() => {
+                  setActiveTab(cat);
+                  handleCancelEdit();
+                }}
+                className={`flex items-center gap-1.5 px-3.5 py-2 rounded-full text-xs font-bold whitespace-nowrap transition-all active:scale-[0.97] ${
+                  isActive 
+                  ? 'bg-natural-primary text-white shadow-md shadow-natural-primary/10' 
+                  : 'bg-gray-50 text-natural-text-muted border border-gray-100 hover:bg-gray-100'
+                }`}
+              >
+                {idx === 0 ? <MessageSquare className="w-3.5 h-3.5" /> : idx === 1 ? <CheckCircle2 className="w-3.5 h-3.5" /> : idx === 2 ? <Tag className="w-3.5 h-3.5" /> : <ListFilter className="w-3.5 h-3.5" />}
+                {cat}
+              </button>
+            );
+          })}
+        </nav>
+      </header>
+
+      {/* Sidebar for Desktop */}
+      <aside className="hidden md:flex md:w-64 border-r border-natural-border bg-white p-6 flex flex-col justify-between overflow-y-auto shrink-0">
         <div className="space-y-8">
           <div className="flex items-center gap-3">
             <div className="w-10 h-10 bg-natural-primary rounded-xl flex items-center justify-center">
