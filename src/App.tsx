@@ -19,7 +19,8 @@ import {
   Ticket,
   Printer,
   QrCode,
-  Share2
+  Share2,
+  Camera
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { 
@@ -41,7 +42,7 @@ import imageCompression from 'browser-image-compression';
 import axios from 'axios';
 import Papa from 'papaparse';
 import JsBarcode from 'jsbarcode';
-import { Html5QrcodeScanner } from 'html5-qrcode';
+import { Html5Qrcode } from 'html5-qrcode';
 import html2canvas from 'html2canvas';
 
 const getVoucherBenefitText = (voucher: any) => {
@@ -119,6 +120,9 @@ export default function App() {
   const [voucherRedeemCustomerName, setVoucherRedeemCustomerName] = useState('');
   const [voucherRedeemCustomerPhone, setVoucherRedeemCustomerPhone] = useState('');
   const [isScanning, setIsScanning] = useState(false);
+  const [cameraFacingMode, setCameraFacingMode] = useState<'environment' | 'user'>('environment');
+  const [scanError, setScanError] = useState('');
+  const [isScanningFile, setIsScanningFile] = useState(false);
   
   // Voucher Generate Form State
   const [genVoucherType, setGenVoucherType] = useState<VoucherType>(VoucherType.DISCOUNT_PERCENT);
@@ -220,52 +224,140 @@ export default function App() {
 
   // Scanner Hook
   useEffect(() => {
-    let scanner: any = null;
+    let qrScanner: any = null;
+    let isMounted = true;
+    let hasStarted = false;
+
     if (isScanning) {
-      try {
-        scanner = new Html5QrcodeScanner(
-          "reader",
-          { 
-            fps: 10, 
-            qrbox: { width: 250, height: 100 },
-            rememberLastUsedCamera: true
-          },
-          /* verbose= */ false
-        );
-        
-        scanner.render(
-          (decodedText: string) => {
-            const cleanCode = decodedText.trim().toUpperCase();
-            setVoucherCodeInput(cleanCode);
-            setIsScanning(false);
-            
-            // Auto search on scan match
-            const found = vouchers.find(v => v.code === cleanCode);
-            if (found) {
-              setScannedVoucher(found);
-              setVoucherSearchStatus('found');
-            } else {
-              setScannedVoucher(null);
-              setVoucherSearchStatus('not_found');
+      setScanError('');
+      const element = document.getElementById('reader');
+      if (element) {
+        try {
+          qrScanner = new Html5Qrcode("reader");
+          const config = {
+            fps: 15,
+            qrbox: (width: number, height: number) => {
+              const minSize = Math.min(width, height);
+              let boxWidth = Math.floor(minSize * 0.8);
+              if (boxWidth < 150) boxWidth = 150;
+              let boxHeight = Math.floor(boxWidth * 0.45);
+              if (boxHeight < 50) boxHeight = 50;
+              return {
+                width: boxWidth,
+                height: boxHeight
+              };
             }
-            
-            scanner.clear().catch((e: any) => console.error("Error clearing scanner", e));
-          },
-          (error: any) => {
-            // Frame scan fail is common, ignore
-          }
-        );
-      } catch (err) {
-        console.error("Scanner setup failed:", err);
+          };
+
+          qrScanner.start(
+            { facingMode: cameraFacingMode },
+            config,
+            (decodedText: string) => {
+              if (!isMounted) return;
+              const cleanCode = decodedText.trim().toUpperCase();
+              setVoucherCodeInput(cleanCode);
+              setIsScanning(false);
+              
+              const found = vouchers.find(v => v.code === cleanCode);
+              if (found) {
+                setScannedVoucher(found);
+                setVoucherSearchStatus('found');
+                setSuccessMsg(`Voucher ${cleanCode} berhasil discan!`);
+              } else {
+                setScannedVoucher(null);
+                setVoucherSearchStatus('not_found');
+              }
+            },
+            () => {
+              // Ignore frame failures
+            }
+          ).then(() => {
+            if (isMounted) {
+              hasStarted = true;
+            } else {
+              qrScanner.stop().catch((e: any) => console.log("Stopped scanner after unmount", e));
+            }
+          }).catch((err: any) => {
+            if (isMounted) {
+              console.error("Camera start failed:", err);
+              if (err && (String(err).includes('NotReadableError') || String(err).includes('Could not start video source'))) {
+                setScanError("Kamera sedang digunakan oleh aplikasi lain atau izin ditolak. Silakan tutup aplikasi kamera lain, segarkan halaman, atau coba gunakan tombol 'Buka Galeri'!");
+              } else {
+                setScanError("Kamera tidak dapat diakses. Silakan pastikan izin kamera diberikan atau pilih gambar barcode dari galeri.");
+              }
+            }
+          });
+        } catch (setupErr) {
+          console.error("Scanner setup error:", setupErr);
+          setScanError("Gagal menginisialisasi scanner.");
+        }
+      } else {
+        const timer = setTimeout(() => {
+          if (!isMounted) return;
+          setScanError("Menghubungkan ke kamera...");
+        }, 100);
+        return () => clearTimeout(timer);
       }
     }
 
     return () => {
-      if (scanner) {
-        scanner.clear().catch((err: any) => console.error("Cleanup scanner error", err));
+      isMounted = false;
+      if (qrScanner) {
+        if (hasStarted) {
+          qrScanner.stop().catch((err: any) => console.error("Error stopping camera safely", err));
+        }
       }
     };
-  }, [isScanning, vouchers]);
+  }, [isScanning, cameraFacingMode, vouchers]);
+
+  const handleScanFile = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    setScanError('');
+    setIsScanningFile(true);
+    setSuccessMsg('');
+    setErrorMsg('');
+
+    const tempDiv = document.createElement('div');
+    tempDiv.id = 'temp-qr-reader';
+    tempDiv.style.display = 'none';
+    document.body.appendChild(tempDiv);
+
+    try {
+      const qrScanner = new Html5Qrcode('temp-qr-reader');
+      const decodedText = await qrScanner.scanFile(file, true);
+      
+      const cleanCode = decodedText.trim().toUpperCase();
+      setVoucherCodeInput(cleanCode);
+      
+      const found = vouchers.find(v => v.code === cleanCode);
+      if (found) {
+        setScannedVoucher(found);
+        setVoucherSearchStatus('found');
+        setVoucherRedeemCustomerName(found.customerName || '');
+        setVoucherRedeemCustomerPhone(found.customerPhone || '');
+        setSuccessMsg(`Voucher ${cleanCode} berhasil dideteksi dari galeri!`);
+      } else {
+        setScannedVoucher(null);
+        setVoucherSearchStatus('not_found');
+        setErrorMsg(`Voucher ${cleanCode} tidak ditemukan.`);
+      }
+    } catch (err: any) {
+      console.error('Scan file error:', err);
+      setErrorMsg('Gagal mendeteksi barcode/QR code dari gambar. Pastikan gambar jelas dan kode terlihat dengan baik.');
+    } finally {
+      setIsScanningFile(false);
+      try {
+        if (tempDiv && tempDiv.parentNode === document.body) {
+          document.body.removeChild(tempDiv);
+        }
+      } catch (rmErr) {
+        console.warn('Failed to remove temp div:', rmErr);
+      }
+      e.target.value = '';
+    }
+  };
 
   const handleAdminAuth = (e: React.FormEvent) => {
     e.preventDefault();
@@ -2064,7 +2156,7 @@ export default function App() {
                     <p className="text-xs text-natural-text-muted mt-1">Cari kode voucher atau scan menggunakan kamera.</p>
                   </div>
 
-                  <form onSubmit={handleSearchVoucher} className="space-y-4">
+                   <form onSubmit={handleSearchVoucher} className="space-y-4">
                     <div className="space-y-2">
                       <label className="text-xs font-black text-natural-text-muted uppercase tracking-wider">Kode Voucher</label>
                       <div className="flex gap-2">
@@ -2084,29 +2176,103 @@ export default function App() {
                       </div>
                     </div>
 
-                    <div className="flex justify-center">
-                      <button
-                        type="button"
-                        onClick={() => setIsScanning(!isScanning)}
-                        className={`w-full py-3 px-4 border rounded-xl text-xs font-black uppercase tracking-widest flex items-center justify-center gap-2 transition-all ${
-                          isScanning
-                          ? 'bg-red-50 border-red-200 text-red-600 hover:bg-red-100'
-                          : 'bg-natural-primary/5 border-natural-primary/20 text-natural-primary hover:bg-natural-primary/10'
-                        }`}
-                      >
-                        <QrCode className="w-4 h-4" />
-                        {isScanning ? 'Matikan Kamera' : 'Aktifkan Kamera Scan'}
-                      </button>
+                    <div className="space-y-3 pt-2">
+                      <label className="text-[10px] font-black text-natural-text-muted uppercase tracking-widest block">Metode Scan & Input</label>
+                      <div className="grid grid-cols-3 gap-2">
+                        {/* Kamera Belakang */}
+                        <button
+                          type="button"
+                          onClick={() => {
+                            if (isScanning && cameraFacingMode === 'environment') {
+                              setIsScanning(false);
+                            } else {
+                              setCameraFacingMode('environment');
+                              setIsScanning(true);
+                            }
+                          }}
+                          className={`flex flex-col items-center justify-center p-3 rounded-xl border text-center transition-all cursor-pointer ${
+                            isScanning && cameraFacingMode === 'environment'
+                            ? 'bg-natural-primary border-natural-primary text-white shadow-md shadow-natural-primary/10 scale-[0.98]'
+                            : 'bg-gray-50 hover:bg-gray-100 border-natural-border text-natural-text-dark'
+                          }`}
+                        >
+                          <Camera className="w-5 h-5 mb-1" />
+                          <span className="text-[10px] font-bold leading-tight">Cam Belakang</span>
+                        </button>
+
+                        {/* Kamera Depan */}
+                        <button
+                          type="button"
+                          onClick={() => {
+                            if (isScanning && cameraFacingMode === 'user') {
+                              setIsScanning(false);
+                            } else {
+                              setCameraFacingMode('user');
+                              setIsScanning(true);
+                            }
+                          }}
+                          className={`flex flex-col items-center justify-center p-3 rounded-xl border text-center transition-all cursor-pointer ${
+                            isScanning && cameraFacingMode === 'user'
+                            ? 'bg-natural-primary border-natural-primary text-white shadow-md shadow-natural-primary/10 scale-[0.98]'
+                            : 'bg-gray-50 hover:bg-gray-100 border-natural-border text-natural-text-dark'
+                          }`}
+                        >
+                          <User className="w-5 h-5 mb-1" />
+                          <span className="text-[10px] font-bold leading-tight">Cam Depan</span>
+                        </button>
+
+                        {/* Ambil dari Galeri */}
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setIsScanning(false);
+                            document.getElementById('qr-gallery-input')?.click();
+                          }}
+                          className={`flex flex-col items-center justify-center p-3 rounded-xl border border-natural-border bg-gray-50 hover:bg-gray-100 text-natural-text-dark text-center transition-all cursor-pointer ${
+                            isScanningFile ? 'animate-pulse bg-natural-primary/10' : ''
+                          }`}
+                        >
+                          {isScanningFile ? (
+                            <Loader2 className="w-5 h-5 mb-1 text-natural-primary animate-spin" />
+                          ) : (
+                            <ImageIcon className="w-5 h-5 mb-1 text-natural-primary" />
+                          )}
+                          <span className="text-[10px] font-bold leading-tight">Buka Galeri</span>
+                        </button>
+                      </div>
+
+                      {/* Hidden input for gallery */}
+                      <input
+                        type="file"
+                        id="qr-gallery-input"
+                        accept="image/*"
+                        className="hidden"
+                        onChange={handleScanFile}
+                      />
                     </div>
                   </form>
 
                   {/* CAMERA STREAM BOX */}
-                  {isScanning && (
-                    <div className="space-y-2 animate-fade-in">
-                      <div id="reader" className="overflow-hidden rounded-2xl border-2 border-dashed border-natural-primary/30 bg-black"></div>
-                      <p className="text-[10px] text-center text-natural-text-muted italic">Arahkan barcode / QR code voucher Anda ke kamera.</p>
+                  <div className={`space-y-2 animate-fade-in border-t border-gray-100 pt-4 ${isScanning ? 'block' : 'hidden'}`}>
+                    <div className="flex justify-between items-center mb-1">
+                      <span className="text-[10px] font-bold text-natural-text-muted uppercase tracking-wider">
+                        Live Scan: {cameraFacingMode === 'environment' ? 'Kamera Belakang' : 'Kamera Depan'}
+                      </span>
+                      <button
+                        type="button"
+                        onClick={() => setIsScanning(false)}
+                        className="text-[10px] font-bold text-red-500 hover:underline"
+                      >
+                        Matikan Kamera
+                      </button>
                     </div>
-                  )}
+                    <div id="reader" className="overflow-hidden rounded-2xl border-2 border-dashed border-natural-primary/30 bg-black min-h-[220px]"></div>
+                    {scanError ? (
+                      <p className="text-xs text-red-500 font-semibold text-center py-2">{scanError}</p>
+                    ) : (
+                      <p className="text-[10px] text-center text-natural-text-muted italic">Arahkan barcode / QR code voucher Anda ke kamera.</p>
+                    )}
+                  </div>
 
                   {/* VOUCHER SEARCH RESULTS & REDEMPTION FORM */}
                   {voucherSearchStatus !== 'idle' && (
