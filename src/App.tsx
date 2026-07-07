@@ -68,6 +68,7 @@ export default function App() {
   const [activeTab, setActiveTab] = useState(CATEGORIES[0]);
   const [activeProgressSubTab, setActiveProgressSubTab] = useState<'pending' | 'done'>('pending');
   const [progressFilterMonth, setProgressFilterMonth] = useState((new Date().getMonth() + 1).toString().padStart(2, '0') + '-' + new Date().getFullYear());
+  const [dashboardPeriod, setDashboardPeriod] = useState<'7' | '14' | '30' | 'all'>('7');
   const [progressSearchQuery, setProgressSearchQuery] = useState('');
   const [selectedDoneProgress, setSelectedDoneProgress] = useState<ProgressData | null>(null);
   const [followups, setFollowups] = useState<FollowUpData[]>([]);
@@ -587,6 +588,37 @@ export default function App() {
       return (matchPic || matchCustomer) && matchMonth && matchDate;
     });
   }, [progressList, searchPic, filterMonth, filterDate]);
+
+  const dashboardStats = useMemo(() => {
+    const list = progressList.filter(p => {
+      if (dashboardPeriod === 'all') return true;
+      
+      const [year, month, day] = p.date.split('-').map(Number);
+      if (isNaN(year) || isNaN(month) || isNaN(day)) return false;
+      const itemDate = new Date(year, month - 1, day);
+      
+      const today = new Date();
+      const todayDate = new Date(today.getFullYear(), today.getMonth(), today.getDate());
+      
+      const diffTime = todayDate.getTime() - itemDate.getTime();
+      const diffDays = Math.floor(diffTime / (1000 * 60 * 60 * 24));
+      
+      const limit = Number(dashboardPeriod);
+      return diffDays >= 0 && diffDays < limit;
+    });
+
+    const total = list.length;
+    const respon = list.filter(p => p.outcome === ProgressOutcome.ADA_FEEDBACK || p.outcome === ProgressOutcome.RESPON_TANPA_FEEDBACK).length;
+    const tidakRespon = list.filter(p => p.outcome === ProgressOutcome.TIDAK_ADA_RESPON).length;
+    const responTanpaFeedback = list.filter(p => p.outcome === ProgressOutcome.RESPON_TANPA_FEEDBACK).length;
+
+    return {
+      total,
+      respon,
+      tidakRespon,
+      responTanpaFeedback
+    };
+  }, [progressList, dashboardPeriod]);
 
   const filteredVouchersAdmin = useMemo(() => {
     return vouchers.filter(v => {
@@ -1721,6 +1753,145 @@ export default function App() {
                   </div>
                 </div>
               </header>
+
+              {/* DASHBOARD HASIL FOLLOW-UP LANJUTAN */}
+              <section id="progress-dashboard-panel" className="xl:col-span-12 card-natural p-6 bg-white border border-natural-border shadow-sm rounded-2xl mb-2">
+                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 border-b border-gray-100 pb-4 mb-6">
+                  <div>
+                    <h3 className="text-sm font-bold text-natural-text-dark uppercase tracking-wider flex items-center gap-2">
+                      <span className="w-2.5 h-2.5 rounded-full bg-natural-primary" />
+                      Dashboard Hasil Follow-up Lanjutan
+                    </h3>
+                    <p className="text-[11px] text-natural-text-muted mt-1">Metrik performa dan respon dari customer hasil follow-up lanjutan.</p>
+                  </div>
+                  
+                  {/* Period Selector */}
+                  <div className="flex items-center gap-1 bg-gray-50 p-1 rounded-xl border border-gray-100 shrink-0">
+                    {(['7', '14', '30', 'all'] as const).map((period) => {
+                      const label = period === '7' ? '7 Hari' : period === '14' ? '14 Hari' : period === '30' ? '30 Hari' : 'Semua';
+                      const isActive = dashboardPeriod === period;
+                      return (
+                        <button
+                          key={`db-period-${period}`}
+                          type="button"
+                          onClick={() => setDashboardPeriod(period)}
+                          className={`px-3 py-1.5 rounded-lg text-[10px] font-bold transition-all cursor-pointer ${
+                            isActive
+                            ? 'bg-natural-primary text-white shadow-sm'
+                            : 'text-natural-text-muted hover:text-natural-text-dark hover:bg-gray-150'
+                          }`}
+                        >
+                          {label}
+                        </button>
+                      );
+                    })}
+                  </div>
+                </div>
+
+                {/* Dashboard Stats Cards */}
+                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+                  {/* Card 1: Total Customer */}
+                  <div className="p-4 rounded-xl border border-blue-100 bg-blue-50/30 flex flex-col justify-between min-h-[100px]">
+                    <div className="flex items-center justify-between mb-2">
+                      <span className="text-[9px] font-bold text-blue-700 uppercase tracking-wider">Total Follow-up Lanjutan</span>
+                      <div className="p-1.5 bg-blue-100 text-blue-700 rounded-lg">
+                        <User className="w-3.5 h-3.5" />
+                      </div>
+                    </div>
+                    <div>
+                      <h4 className="text-2xl font-bold text-natural-text-dark">{dashboardStats.total}</h4>
+                      <p className="text-[9px] text-blue-600 font-medium mt-1">Konsumen di-follow up lanjutan</p>
+                    </div>
+                  </div>
+
+                  {/* Card 2: Respon */}
+                  <div className="p-4 rounded-xl border border-emerald-100 bg-emerald-50/30 flex flex-col justify-between min-h-[100px]">
+                    <div className="flex items-center justify-between mb-2">
+                      <span className="text-[9px] font-bold text-emerald-700 uppercase tracking-wider">Merespon</span>
+                      <div className="p-1.5 bg-emerald-100 text-emerald-700 rounded-lg">
+                        <CheckCircle2 className="w-3.5 h-3.5" />
+                      </div>
+                    </div>
+                    <div>
+                      <div className="flex items-baseline gap-2">
+                        <h4 className="text-2xl font-bold text-natural-text-dark">{dashboardStats.respon}</h4>
+                        {dashboardStats.total > 0 && (
+                          <span className="text-[10px] font-bold text-emerald-600">
+                            ({Math.round((dashboardStats.respon / dashboardStats.total) * 100)}%)
+                          </span>
+                        )}
+                      </div>
+                      
+                      {/* Mini progress bar */}
+                      <div className="w-full bg-emerald-100 h-1 rounded-full mt-2 overflow-hidden">
+                        <div 
+                          className="bg-emerald-500 h-full rounded-full transition-all duration-500" 
+                          style={{ width: `${dashboardStats.total > 0 ? (dashboardStats.respon / dashboardStats.total) * 100 : 0}%` }}
+                        />
+                      </div>
+                      <p className="text-[9px] text-emerald-600 font-medium mt-1">Ada feedback / balasan konsumen</p>
+                    </div>
+                  </div>
+
+                  {/* Card 3: Tidak Respon */}
+                  <div className="p-4 rounded-xl border border-rose-100 bg-rose-50/30 flex flex-col justify-between min-h-[100px]">
+                    <div className="flex items-center justify-between mb-2">
+                      <span className="text-[9px] font-bold text-rose-700 uppercase tracking-wider">Tidak Respon</span>
+                      <div className="p-1.5 bg-rose-100 text-rose-700 rounded-lg">
+                        <X className="w-3.5 h-3.5" />
+                      </div>
+                    </div>
+                    <div>
+                      <div className="flex items-baseline gap-2">
+                        <h4 className="text-2xl font-bold text-natural-text-dark">{dashboardStats.tidakRespon}</h4>
+                        {dashboardStats.total > 0 && (
+                          <span className="text-[10px] font-bold text-rose-600">
+                            ({Math.round((dashboardStats.tidakRespon / dashboardStats.total) * 100)}%)
+                          </span>
+                        )}
+                      </div>
+
+                      {/* Mini progress bar */}
+                      <div className="w-full bg-rose-100 h-1 rounded-full mt-2 overflow-hidden">
+                        <div 
+                          className="bg-rose-500 h-full rounded-full transition-all duration-500" 
+                          style={{ width: `${dashboardStats.total > 0 ? (dashboardStats.tidakRespon / dashboardStats.total) * 100 : 0}%` }}
+                        />
+                      </div>
+                      <p className="text-[9px] text-rose-600 font-medium mt-1">Tidak membalas chat</p>
+                    </div>
+                  </div>
+
+                  {/* Card 4: Respon Tanpa Feedback */}
+                  <div className="p-4 rounded-xl border border-amber-100 bg-amber-50/30 flex flex-col justify-between min-h-[100px]">
+                    <div className="flex items-center justify-between mb-2">
+                      <span className="text-[9px] font-bold text-amber-700 uppercase tracking-wider">Respon Tanpa Feedback</span>
+                      <div className="p-1.5 bg-amber-100 text-amber-700 rounded-lg">
+                        <AlertCircle className="w-3.5 h-3.5" />
+                      </div>
+                    </div>
+                    <div>
+                      <div className="flex items-baseline gap-2">
+                        <h4 className="text-2xl font-bold text-natural-text-dark">{dashboardStats.responTanpaFeedback}</h4>
+                        {dashboardStats.total > 0 && (
+                          <span className="text-[10px] font-bold text-amber-600">
+                            ({Math.round((dashboardStats.responTanpaFeedback / dashboardStats.total) * 100)}%)
+                          </span>
+                        )}
+                      </div>
+
+                      {/* Mini progress bar */}
+                      <div className="w-full bg-amber-100 h-1 rounded-full mt-2 overflow-hidden">
+                        <div 
+                          className="bg-amber-500 h-full rounded-full transition-all duration-500" 
+                          style={{ width: `${dashboardStats.total > 0 ? (dashboardStats.responTanpaFeedback / dashboardStats.total) * 100 : 0}%` }}
+                        />
+                      </div>
+                      <p className="text-[9px] text-amber-600 font-medium mt-1">Merespon tapi no feedback</p>
+                    </div>
+                  </div>
+                </div>
+              </section>
 
               {/* Progress Selection */}
               <section className="xl:col-span-4 space-y-4">
