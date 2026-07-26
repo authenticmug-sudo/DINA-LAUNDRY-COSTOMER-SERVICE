@@ -82,3 +82,37 @@ export interface VoucherData {
   customerPhone?: string | null;
   createdAt: any;
 }
+
+export interface ReferralPartner {
+  id?: string;
+  name: string;
+  phone: string;
+  role?: string; // e.g. Tour Guide, Hotel Receptionist, Driver, Travel Agent
+  notes?: string;
+  createdAt: any;
+}
+
+export interface ReferralTransaction {
+  id?: string;
+  partnerId: string;
+  partnerName: string;
+  partnerPhone: string;
+  date: string; // YYYY-MM-DD
+  customerName: string;
+  amount: number; // Transaction value in Rp
+  pointsEarned: number; // Calculated points
+  notes?: string;
+  createdAt: any;
+}
+
+export interface ReferralRedemption {
+  id?: string;
+  partnerId: string;
+  partnerName: string;
+  partnerPhone: string;
+  date: string; // YYYY-MM-DD
+  pointsRedeemed: number;
+  rewardAmount: number; // Value in Rp
+  notes?: string;
+  createdAt: any;
+}

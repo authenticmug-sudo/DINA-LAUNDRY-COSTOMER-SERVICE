@@ -37,5 +37,17 @@ service cloud.firestore {
     match /vouchers/{voucherId} {
       allow read, write: if true;
     }
+
+    match /referral_partners/{partnerId} {
+      allow read, write: if true;
+    }
+
+    match /referral_transactions/{transId} {
+      allow read, write: if true;
+    }
+
+    match /referral_redemptions/{redemptionId} {
+      allow read, write: if true;
+    }
   }
 }

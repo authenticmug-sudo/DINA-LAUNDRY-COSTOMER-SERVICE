@@ -147,6 +147,52 @@
         }
       },
       "required": ["code", "type", "value", "minTransaction", "expiryDate", "isRedeemed", "createdAt"]
+    },
+    "ReferralPartner": {
+      "title": "Pemberi Rekomendasi / Guide",
+      "description": "Database mitra pemberi rekomendasi (tour guide, resepsionis, driver)",
+      "type": "object",
+      "properties": {
+        "name": { "type": "string", "description": "Nama pemberi rekomendasi" },
+        "phone": { "type": "string", "description": "Nomor WhatsApp/HP pemberi rekomendasi" },
+        "role": { "type": "string", "description": "Pekerjaan/Instansi/Peran" },
+        "notes": { "type": "string", "description": "Catatan opsional" },
+        "createdAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["name", "phone", "createdAt"]
+    },
+    "ReferralTransaction": {
+      "title": "Transaksi Rekomendasi",
+      "description": "Catatan transaksi laundry hasil rekomendasi mitra",
+      "type": "object",
+      "properties": {
+        "partnerId": { "type": "string" },
+        "partnerName": { "type": "string" },
+        "partnerPhone": { "type": "string" },
+        "date": { "type": "string", "format": "date" },
+        "customerName": { "type": "string" },
+        "amount": { "type": "number" },
+        "pointsEarned": { "type": "number" },
+        "notes": { "type": "string" },
+        "createdAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["partnerId", "partnerName", "partnerPhone", "date", "customerName", "amount", "pointsEarned", "createdAt"]
+    },
+    "ReferralRedemption": {
+      "title": "Penukaran / Redeem Poin",
+      "description": "Riwayat klaim reward/komisi oleh pemberi rekomendasi",
+      "type": "object",
+      "properties": {
+        "partnerId": { "type": "string" },
+        "partnerName": { "type": "string" },
+        "partnerPhone": { "type": "string" },
+        "date": { "type": "string", "format": "date" },
+        "pointsRedeemed": { "type": "number" },
+        "rewardAmount": { "type": "number" },
+        "notes": { "type": "string" },
+        "createdAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["partnerId", "partnerName", "partnerPhone", "date", "pointsRedeemed", "rewardAmount", "createdAt"]
     }
   },
   "firestore": {
@@ -161,6 +207,18 @@
     "vouchers/{voucherId}": {
       "schema": "Voucher",
       "description": "Koleksi data voucher diskon dan promo"
+    },
+    "referral_partners/{partnerId}": {
+      "schema": "ReferralPartner",
+      "description": "Koleksi data mitra pemberi rekomendasi"
+    },
+    "referral_transactions/{transId}": {
+      "schema": "ReferralTransaction",
+      "description": "Koleksi data transaksi rekomendasi"
+    },
+    "referral_redemptions/{redemptionId}": {
+      "schema": "ReferralRedemption",
+      "description": "Koleksi data klaim poin/reward"
     }
   }
 }

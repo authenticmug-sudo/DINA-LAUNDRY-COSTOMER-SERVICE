@@ -20,7 +20,19 @@ import {
   Printer,
   QrCode,
   Share2,
-  Camera
+  Camera,
+  Gift,
+  Award,
+  Users,
+  Wallet,
+  TrendingUp,
+  Coins,
+  PhoneCall,
+  Building2,
+  ArrowUpRight,
+  FileSpreadsheet,
+  Sparkles,
+  Check
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { 
@@ -37,7 +49,18 @@ import {
 } from 'firebase/firestore';
 import { db, auth } from './lib/firebase';
 import { handleFirestoreError } from './lib/error-handler';
-import { FollowUpData, OperationType, ProgressData, ProgressOutcome, ProgressChannel, VoucherData, VoucherType } from './types';
+import { 
+  FollowUpData, 
+  OperationType, 
+  ProgressData, 
+  ProgressOutcome, 
+  ProgressChannel, 
+  VoucherData, 
+  VoucherType,
+  ReferralPartner,
+  ReferralTransaction,
+  ReferralRedemption
+} from './types';
 import imageCompression from 'browser-image-compression';
 import axios from 'axios';
 import Papa from 'papaparse';
@@ -62,7 +85,7 @@ const getVoucherBenefitText = (voucher: any) => {
 };
 
 // Design Constants
-const CATEGORIES = ['CS Follow-up', 'Progress', 'Voucher', 'Admin Tracking'];
+const CATEGORIES = ['CS Follow-up', 'Progress', 'Voucher', 'Tracking Rekomendasi', 'Admin Tracking'];
 
 export default function App() {
   const [activeTab, setActiveTab] = useState(CATEGORIES[0]);
@@ -144,6 +167,44 @@ export default function App() {
   const [voucherListFilterStatus, setVoucherListFilterStatus] = useState<'all' | 'active' | 'redeemed' | 'expired'>('all');
   const [selectedVoucherForPrint, setSelectedVoucherForPrint] = useState<VoucherData | null>(null);
 
+  // Tracking Rekomendasi (Referral / Guide Tracking) State
+  const [referralPartners, setReferralPartners] = useState<ReferralPartner[]>([]);
+  const [referralTransactions, setReferralTransactions] = useState<ReferralTransaction[]>([]);
+  const [referralRedemptions, setReferralRedemptions] = useState<ReferralRedemption[]>([]);
+  const [referralSubTab, setReferralSubTab] = useState<'transactions' | 'partners' | 'redeem'>('transactions');
+
+  // Form State: Register / Edit Partner
+  const [partnerName, setPartnerName] = useState('');
+  const [partnerPhone, setPartnerPhone] = useState('');
+  const [partnerRole, setPartnerRole] = useState('Tour Guide');
+  const [partnerNotes, setPartnerNotes] = useState('');
+  const [editingPartnerId, setEditingPartnerId] = useState<string | null>(null);
+  const [isSavingPartner, setIsSavingPartner] = useState(false);
+
+  // Form State: Log Referral Transaction
+  const [transPartnerId, setTransPartnerId] = useState('');
+  const [transPartnerInput, setTransPartnerInput] = useState('');
+  const [transDate, setTransDate] = useState(new Date().toISOString().split('T')[0]);
+  const [transCustomerName, setTransCustomerName] = useState('');
+  const [transAmount, setTransAmount] = useState('');
+  const [transNotes, setTransNotes] = useState('');
+  const [isSavingTrans, setIsSavingTrans] = useState(false);
+  const [showQuickPartnerModal, setShowQuickPartnerModal] = useState(false);
+
+  // Form State: Point Redemption / Reward Claim
+  const [redeemPartnerId, setRedeemPartnerId] = useState('');
+  const [redeemDate, setRedeemDate] = useState(new Date().toISOString().split('T')[0]);
+  const [redeemPointsInput, setRedeemPointsInput] = useState('');
+  const [redeemRewardInput, setRedeemRewardInput] = useState('');
+  const [redeemNotesInput, setRedeemNotesInput] = useState('');
+  const [isSavingRedemption, setIsSavingRedemption] = useState(false);
+  const [showRedeemModal, setShowRedeemModal] = useState(false);
+
+  // Search & Filters for Referral
+  const [referralSearch, setReferralSearch] = useState('');
+  const [referralPartnerFilter, setReferralPartnerFilter] = useState('all');
+  const [selectedPartnerDetail, setSelectedPartnerDetail] = useState<ReferralPartner | null>(null);
+
   // Barcode Render Effect
   const barcodeRef = useRef<SVGSVGElement | null>(null);
   useEffect(() => {
@@ -198,10 +259,9 @@ export default function App() {
         ...doc.data()
       })) as VoucherData[];
       
-      // Sort client-side by createdAt descending. Handle pending/null timestamps gracefully (put at top).
       data.sort((a, b) => {
         const getMs = (val: any) => {
-          if (!val) return Date.now() + 10000; // Put newly created/pending local items at the top
+          if (!val) return Date.now() + 10000;
           if (typeof val.toDate === 'function') return val.toDate().getTime();
           if (val.seconds) return val.seconds * 1000;
           if (val instanceof Date) return val.getTime();
@@ -216,12 +276,76 @@ export default function App() {
       handleFirestoreError(error, OperationType.LIST, 'vouchers');
     });
 
+    // Subscriptions for Referral System
+    const qRP = query(collection(db, 'referral_partners'), limit(500));
+    const unsubscribeRP = onSnapshot(qRP, (snapshot) => {
+      const data = snapshot.docs.map(doc => ({
+        id: doc.id,
+        ...doc.data()
+      })) as ReferralPartner[];
+      
+      data.sort((a, b) => (a.name || '').localeCompare(b.name || ''));
+      setReferralPartners(data);
+    }, (error) => {
+      handleFirestoreError(error, OperationType.LIST, 'referral_partners');
+    });
+
+    const qRT = query(collection(db, 'referral_transactions'), limit(1000));
+    const unsubscribeRT = onSnapshot(qRT, (snapshot) => {
+      const data = snapshot.docs.map(doc => ({
+        id: doc.id,
+        ...doc.data()
+      })) as ReferralTransaction[];
+      
+      data.sort((a, b) => {
+        const getMs = (val: any) => {
+          if (!val) return Date.now() + 10000;
+          if (typeof val.toDate === 'function') return val.toDate().getTime();
+          if (val.seconds) return val.seconds * 1000;
+          if (val instanceof Date) return val.getTime();
+          const parsed = Date.parse(val);
+          return isNaN(parsed) ? 0 : parsed;
+        };
+        return getMs(b.createdAt) - getMs(a.createdAt);
+      });
+      setReferralTransactions(data);
+    }, (error) => {
+      handleFirestoreError(error, OperationType.LIST, 'referral_transactions');
+    });
+
+    const qRR = query(collection(db, 'referral_redemptions'), limit(1000));
+    const unsubscribeRR = onSnapshot(qRR, (snapshot) => {
+      const data = snapshot.docs.map(doc => ({
+        id: doc.id,
+        ...doc.data()
+      })) as ReferralRedemption[];
+      
+      data.sort((a, b) => {
+        const getMs = (val: any) => {
+          if (!val) return Date.now() + 10000;
+          if (typeof val.toDate === 'function') return val.toDate().getTime();
+          if (val.seconds) return val.seconds * 1000;
+          if (val instanceof Date) return val.getTime();
+          const parsed = Date.parse(val);
+          return isNaN(parsed) ? 0 : parsed;
+        };
+        return getMs(b.createdAt) - getMs(a.createdAt);
+      });
+      setReferralRedemptions(data);
+    }, (error) => {
+      handleFirestoreError(error, OperationType.LIST, 'referral_redemptions');
+    });
+
     return () => {
       unsubscribeF();
       unsubscribeP();
       unsubscribeV();
+      unsubscribeRP();
+      unsubscribeRT();
+      unsubscribeRR();
     };
   }, [activeTab]);
+
 
   // Scanner Hook
   useEffect(() => {
@@ -304,8 +428,14 @@ export default function App() {
     return () => {
       isMounted = false;
       if (qrScanner) {
-        if (hasStarted) {
-          qrScanner.stop().catch((err: any) => console.error("Error stopping camera safely", err));
+        try {
+          if (hasStarted && typeof qrScanner.stop === 'function') {
+            qrScanner.stop().catch((err: any) => {
+              console.log("Stopped camera safely", err);
+            });
+          }
+        } catch (e) {
+          // Ignore DOM cleanup errors
         }
       }
     };
@@ -1171,6 +1301,340 @@ export default function App() {
       return true;
     });
   }, [vouchers, voucherListSearch, voucherListFilterStatus]);
+
+  // Referral Handlers & Logic
+  const partnerStatsMap = useMemo(() => {
+    const map: Record<string, {
+      totalTxAmount: number;
+      txCount: number;
+      totalPointsEarned: number;
+      totalPointsRedeemed: number;
+      activePoints: number;
+      totalRewardReceived: number;
+    }> = {};
+
+    referralPartners.forEach(p => {
+      if (p.id) {
+        map[p.id] = {
+          totalTxAmount: 0,
+          txCount: 0,
+          totalPointsEarned: 0,
+          totalPointsRedeemed: 0,
+          activePoints: 0,
+          totalRewardReceived: 0,
+        };
+      }
+    });
+
+    referralTransactions.forEach(t => {
+      if (map[t.partnerId]) {
+        map[t.partnerId].totalTxAmount += (Number(t.amount) || 0);
+        map[t.partnerId].txCount += 1;
+        map[t.partnerId].totalPointsEarned += (Number(t.pointsEarned) || 0);
+      }
+    });
+
+    referralRedemptions.forEach(r => {
+      if (map[r.partnerId]) {
+        map[r.partnerId].totalPointsRedeemed += (Number(r.pointsRedeemed) || 0);
+        map[r.partnerId].totalRewardReceived += (Number(r.rewardAmount) || 0);
+      }
+    });
+
+    Object.keys(map).forEach(pId => {
+      map[pId].activePoints = map[pId].totalPointsEarned - map[pId].totalPointsRedeemed;
+    });
+
+    return map;
+  }, [referralPartners, referralTransactions, referralRedemptions]);
+
+  const activeMatchedPartner = useMemo(() => {
+    if (transPartnerId) {
+      return referralPartners.find(p => p.id === transPartnerId) || null;
+    }
+    const queryStr = transPartnerInput.trim().toLowerCase();
+    if (!queryStr) return null;
+
+    const numOnly = queryStr.replace(/\D/g, '');
+    return referralPartners.find(p => {
+      const pName = p.name.toLowerCase();
+      const pPhone = p.phone.replace(/\D/g, '');
+      return pName.includes(queryStr) || (numOnly.length >= 3 && pPhone.includes(numOnly));
+    }) || null;
+  }, [transPartnerId, transPartnerInput, referralPartners]);
+
+  const handleSavePartner = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!partnerName.trim() || !partnerPhone.trim()) {
+      setErrorMsg('Nama dan Nomor HP/WA Pemberi Rekomendasi wajib diisi.');
+      return;
+    }
+
+    setIsSavingPartner(true);
+    setErrorMsg('');
+    setSuccessMsg('');
+
+    try {
+      if (editingPartnerId) {
+        await updateDoc(doc(db, 'referral_partners', editingPartnerId), {
+          name: partnerName.trim(),
+          phone: partnerPhone.trim(),
+          role: partnerRole.trim(),
+          notes: partnerNotes.trim()
+        });
+        setSuccessMsg(`Data mitra ${partnerName} berhasil diperbarui.`);
+      } else {
+        const docRef = await addDoc(collection(db, 'referral_partners'), {
+          name: partnerName.trim(),
+          phone: partnerPhone.trim(),
+          role: partnerRole.trim(),
+          notes: partnerNotes.trim(),
+          createdAt: serverTimestamp()
+        });
+        setSuccessMsg(`Pemberi rekomendasi ${partnerName} berhasil didaftarkan!`);
+        
+        if (showQuickPartnerModal) {
+          setTransPartnerId(docRef.id);
+          setTransPartnerInput(partnerName.trim());
+        }
+      }
+
+      setPartnerName('');
+      setPartnerPhone('');
+      setPartnerRole('Tour Guide');
+      setPartnerNotes('');
+      setEditingPartnerId(null);
+      setShowQuickPartnerModal(false);
+    } catch (err: any) {
+      setErrorMsg(err.message || 'Gagal menyimpan data mitra.');
+    } finally {
+      setIsSavingPartner(false);
+    }
+  };
+
+  const handleEditPartner = (p: ReferralPartner) => {
+    setEditingPartnerId(p.id || null);
+    setPartnerName(p.name);
+    setPartnerPhone(p.phone);
+    setPartnerRole(p.role || 'Tour Guide');
+    setPartnerNotes(p.notes || '');
+    setReferralSubTab('partners');
+  };
+
+  const handleDeletePartner = async (partnerId: string, name: string) => {
+    if (!confirm(`Hapus mitra "${name}" dari database? Data transaksi dan poin mitra ini akan tetap tersimpan.`)) return;
+    try {
+      await deleteDoc(doc(db, 'referral_partners', partnerId));
+      setSuccessMsg(`Mitra ${name} telah dihapus.`);
+    } catch (err: any) {
+      setErrorMsg('Gagal menghapus mitra.');
+    }
+  };
+
+  const handleSaveReferralTransaction = async (e: React.FormEvent) => {
+    e.preventDefault();
+    
+    let targetPartner = activeMatchedPartner;
+    if (!targetPartner && transPartnerId) {
+      targetPartner = referralPartners.find(p => p.id === transPartnerId) || null;
+    }
+
+    if (!targetPartner) {
+      setErrorMsg('Pilih atau daftarkan pemberi rekomendasi terlebih dahulu.');
+      return;
+    }
+
+    if (!transCustomerName.trim() || !transAmount || Number(transAmount) <= 0) {
+      setErrorMsg('Nama konsumen/tamu dan nilai transaksi harus diisi dengan benar.');
+      return;
+    }
+
+    setIsSavingTrans(true);
+    setErrorMsg('');
+    setSuccessMsg('');
+
+    try {
+      const amountNum = Number(transAmount);
+      const pointsEarned = Math.floor(amountNum / 10000);
+
+      await addDoc(collection(db, 'referral_transactions'), {
+        partnerId: targetPartner.id,
+        partnerName: targetPartner.name,
+        partnerPhone: targetPartner.phone,
+        date: transDate,
+        customerName: transCustomerName.trim(),
+        amount: amountNum,
+        pointsEarned: pointsEarned,
+        notes: transNotes.trim(),
+        createdAt: serverTimestamp()
+      });
+
+      setSuccessMsg(`Transaksi Rp ${amountNum.toLocaleString('id-ID')} (${pointsEarned} Poin) berhasil dicatat untuk ${targetPartner.name}!`);
+
+      setTransCustomerName('');
+      setTransAmount('');
+      setTransNotes('');
+      setTransPartnerId('');
+      setTransPartnerInput('');
+    } catch (err: any) {
+      setErrorMsg(err.message || 'Gagal menyimpan transaksi.');
+    } finally {
+      setIsSavingTrans(false);
+    }
+  };
+
+  const handleDeleteReferralTransaction = async (transId: string) => {
+    if (!confirm('Hapus pencatatan transaksi rekomendasi ini?')) return;
+    try {
+      await deleteDoc(doc(db, 'referral_transactions', transId));
+      setSuccessMsg('Transaksi berhasil dihapus.');
+    } catch (err: any) {
+      setErrorMsg('Gagal menghapus transaksi.');
+    }
+  };
+
+  const handleSaveRedemption = async (e: React.FormEvent) => {
+    e.preventDefault();
+    
+    const partner = referralPartners.find(p => p.id === redeemPartnerId);
+    if (!partner || !redeemPartnerId) {
+      setErrorMsg('Pilih pemberi rekomendasi.');
+      return;
+    }
+
+    const pointsToRedeem = Number(redeemPointsInput);
+    const rewardVal = Number(redeemRewardInput);
+
+    if (!pointsToRedeem || pointsToRedeem <= 0) {
+      setErrorMsg('Jumlah poin yang ditukar harus lebih dari 0.');
+      return;
+    }
+
+    const currentStats = partnerStatsMap[partner.id!] || { activePoints: 0 };
+    if (pointsToRedeem > currentStats.activePoints) {
+      setErrorMsg(`Poin tidak mencukupi! Sisa poin aktif ${partner.name} hanya ${currentStats.activePoints} Poin.`);
+      return;
+    }
+
+    setIsSavingRedemption(true);
+    setErrorMsg('');
+    setSuccessMsg('');
+
+    try {
+      await addDoc(collection(db, 'referral_redemptions'), {
+        partnerId: partner.id,
+        partnerName: partner.name,
+        partnerPhone: partner.phone,
+        date: redeemDate,
+        pointsRedeemed: pointsToRedeem,
+        rewardAmount: rewardVal || 0,
+        notes: redeemNotesInput.trim(),
+        createdAt: serverTimestamp()
+      });
+
+      setSuccessMsg(`Penukaran ${pointsToRedeem} Poin (${rewardVal > 0 ? 'Rp ' + rewardVal.toLocaleString('id-ID') : 'Reward'}) untuk ${partner.name} berhasil dicatat!`);
+
+      setRedeemPointsInput('');
+      setRedeemRewardInput('');
+      setRedeemNotesInput('');
+      setShowRedeemModal(false);
+    } catch (err: any) {
+      setErrorMsg(err.message || 'Gagal menyimpan klaim poin.');
+    } finally {
+      setIsSavingRedemption(false);
+    }
+  };
+
+  const handleDeleteRedemption = async (redemptionId: string) => {
+    if (!confirm('Hapus riwayat penukaran poin ini? Poin akan dikembalikan ke sisa saldo mitra.')) return;
+    try {
+      await deleteDoc(doc(db, 'referral_redemptions', redemptionId));
+      setSuccessMsg('Penukaran poin berhasil dibatalkan/dihapus.');
+    } catch (err: any) {
+      setErrorMsg('Gagal menghapus data penukaran poin.');
+    }
+  };
+
+  const exportReferralPartnersCSV = () => {
+    const data = referralPartners.map(p => {
+      const stats = partnerStatsMap[p.id!] || {
+        totalTxAmount: 0,
+        txCount: 0,
+        totalPointsEarned: 0,
+        totalPointsRedeemed: 0,
+        activePoints: 0,
+        totalRewardReceived: 0
+      };
+      return {
+        ID_Mitra: p.id || '-',
+        Nama_Pemberi_Rekomendasi: p.name,
+        No_HP_WA: p.phone,
+        Pekerjaan_Role: p.role || '-',
+        Catatan: p.notes || '-',
+        Jumlah_Transaksi_Laundry: stats.txCount,
+        Total_Nilai_Transaksi_Rp: stats.totalTxAmount,
+        Total_Poin_Diperoleh: stats.totalPointsEarned,
+        Total_Poin_Ditukar: stats.totalPointsRedeemed,
+        Sisa_Poin_Aktif: stats.activePoints,
+        Total_Komisi_Reward_Diambil_Rp: stats.totalRewardReceived
+      };
+    });
+
+    const csv = Papa.unparse(data);
+    const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.href = url;
+    link.setAttribute('download', `database_mitra_rekomendasi_${new Date().toISOString().split('T')[0]}.csv`);
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+  };
+
+  const exportReferralTransactionsCSV = () => {
+    const data = referralTransactions.map(t => ({
+      ID_Transaksi: t.id || '-',
+      Tanggal_Transaksi: t.date,
+      Nama_Pemberi_Rekomendasi: t.partnerName,
+      No_HP_Pemberi_Rekomendasi: t.partnerPhone,
+      Nama_Konsumen_Tamu: t.customerName,
+      Nilai_Transaksi_Rp: t.amount,
+      Poin_Diperoleh: t.pointsEarned,
+      Catatan: t.notes || '-'
+    }));
+
+    const csv = Papa.unparse(data);
+    const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.href = url;
+    link.setAttribute('download', `transaksi_rekomendasi_laundry_${new Date().toISOString().split('T')[0]}.csv`);
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+  };
+
+  const exportReferralRedemptionsCSV = () => {
+    const data = referralRedemptions.map(r => ({
+      ID_Redeem: r.id || '-',
+      Tanggal_Penukaran: r.date,
+      Nama_Pemberi_Rekomendasi: r.partnerName,
+      No_HP_Pemberi_Rekomendasi: r.partnerPhone,
+      Poin_Ditukar: r.pointsRedeemed,
+      Nominal_Reward_Rp: r.rewardAmount,
+      Catatan_Bukti: r.notes || '-'
+    }));
+
+    const csv = Papa.unparse(data);
+    const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.href = url;
+    link.setAttribute('download', `histori_redeem_poin_rekomendasi_${new Date().toISOString().split('T')[0]}.csv`);
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+  };
 
   return (
     <div className="flex flex-col md:flex-row h-screen w-full bg-natural-bg overflow-hidden font-sans">
@@ -2796,6 +3260,949 @@ export default function App() {
                   </div>
                 </div>
               </section>
+            </motion.div>
+          ) : activeTab === CATEGORIES[3] ? (
+            <motion.div
+              key="referral-tracking"
+              initial={{ opacity: 0, y: 10 }}
+              animate={{ opacity: 1, y: 0 }}
+              exit={{ opacity: 0, y: -10 }}
+              className="space-y-6"
+            >
+              {/* HEADER & SUMMARY METRICS */}
+              <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 bg-white p-6 rounded-2xl border border-natural-border shadow-sm">
+                <div>
+                  <div className="flex items-center gap-2 mb-1">
+                    <Award className="w-6 h-6 text-amber-500" />
+                    <h2 className="font-serif text-2xl text-natural-text-dark font-bold">Tracking Rekomendasi & Poin Guide</h2>
+                  </div>
+                  <p className="text-xs text-natural-text-muted">Pencatatan referral guide/sopir, sistem poin transaksi, dan histori klaim reward.</p>
+                </div>
+
+                <div className="flex flex-wrap items-center gap-2">
+                  <button
+                    onClick={() => {
+                      setEditingPartnerId(null);
+                      setPartnerName('');
+                      setPartnerPhone('');
+                      setPartnerRole('Tour Guide');
+                      setPartnerNotes('');
+                      setShowQuickPartnerModal(true);
+                    }}
+                    className="px-4 py-2 bg-amber-50 hover:bg-amber-100 text-amber-800 font-bold text-xs rounded-xl flex items-center gap-2 border border-amber-200/60 transition-colors shadow-xs"
+                  >
+                    <User className="w-4 h-4 text-amber-600" />
+                    + Daftar Mitra
+                  </button>
+
+                  <button
+                    onClick={() => {
+                      setRedeemPartnerId('');
+                      setRedeemPointsInput('');
+                      setRedeemRewardInput('');
+                      setRedeemNotesInput('');
+                      setShowRedeemModal(true);
+                    }}
+                    className="px-4 py-2 bg-emerald-60 text-emerald-800 bg-emerald-50 hover:bg-emerald-100 font-bold text-xs rounded-xl flex items-center gap-2 border border-emerald-200/60 transition-colors shadow-xs"
+                  >
+                    <Coins className="w-4 h-4 text-emerald-600" />
+                    Tukar / Redeem Poin
+                  </button>
+
+                  <div className="relative group">
+                    <button className="px-4 py-2 bg-slate-800 text-white font-bold text-xs rounded-xl flex items-center gap-2 hover:bg-slate-900 transition-colors shadow-sm">
+                      <Download className="w-4 h-4" />
+                      Export CSV Data
+                    </button>
+                    <div className="absolute right-0 top-full mt-1 w-56 bg-white rounded-xl shadow-xl border border-gray-100 py-2 hidden group-hover:block z-30">
+                      <button
+                        onClick={exportReferralPartnersCSV}
+                        className="w-full text-left px-4 py-2 text-xs font-semibold text-gray-700 hover:bg-gray-50 flex items-center gap-2"
+                      >
+                        <FileSpreadsheet className="w-3.5 h-3.5 text-amber-600" />
+                        Export Database Mitra (CSV)
+                      </button>
+                      <button
+                        onClick={exportReferralTransactionsCSV}
+                        className="w-full text-left px-4 py-2 text-xs font-semibold text-gray-700 hover:bg-gray-50 flex items-center gap-2"
+                      >
+                        <FileSpreadsheet className="w-3.5 h-3.5 text-blue-600" />
+                        Export Transaksi Rekomendasi (CSV)
+                      </button>
+                      <button
+                        onClick={exportReferralRedemptionsCSV}
+                        className="w-full text-left px-4 py-2 text-xs font-semibold text-gray-700 hover:bg-gray-50 flex items-center gap-2"
+                      >
+                        <FileSpreadsheet className="w-3.5 h-3.5 text-emerald-600" />
+                        Export Histori Redeem Poin (CSV)
+                      </button>
+                    </div>
+                  </div>
+                </div>
+              </div>
+
+              {/* STATS CARDS GRID */}
+              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+                <div className="bg-white p-5 rounded-2xl border border-natural-border shadow-xs flex items-center gap-4">
+                  <div className="w-12 h-12 rounded-xl bg-amber-50 text-amber-600 flex items-center justify-center shrink-0">
+                    <Users className="w-6 h-6" />
+                  </div>
+                  <div>
+                    <p className="text-[10px] font-black uppercase tracking-wider text-natural-text-muted">Total Mitra Terdaftar</p>
+                    <p className="text-2xl font-serif font-black text-natural-text-dark">{referralPartners.length} <span className="text-xs font-normal font-sans text-gray-500">Orang</span></p>
+                  </div>
+                </div>
+
+                <div className="bg-white p-5 rounded-2xl border border-natural-border shadow-xs flex items-center gap-4">
+                  <div className="w-12 h-12 rounded-xl bg-blue-50 text-blue-600 flex items-center justify-center shrink-0">
+                    <TrendingUp className="w-6 h-6" />
+                  </div>
+                  <div>
+                    <p className="text-[10px] font-black uppercase tracking-wider text-natural-text-muted">Total Nilai Transaksi</p>
+                    <p className="text-xl font-serif font-black text-natural-text-dark">
+                      Rp {referralTransactions.reduce((acc, curr) => acc + (Number(curr.amount) || 0), 0).toLocaleString('id-ID')}
+                    </p>
+                    <p className="text-[10px] text-gray-500">{referralTransactions.length} kali rekomendasi</p>
+                  </div>
+                </div>
+
+                <div className="bg-white p-5 rounded-2xl border border-natural-border shadow-xs flex items-center gap-4">
+                  <div className="w-12 h-12 rounded-xl bg-amber-50 text-amber-600 flex items-center justify-center shrink-0">
+                    <Coins className="w-6 h-6" />
+                  </div>
+                  <div>
+                    <p className="text-[10px] font-black uppercase tracking-wider text-natural-text-muted">Sisa Poin Aktif Total</p>
+                    <p className="text-2xl font-serif font-black text-amber-600">
+                      {Object.values(partnerStatsMap).reduce((acc: number, curr: any) => acc + (curr.activePoints || 0), 0)} <span className="text-xs font-sans font-bold text-amber-700">Poin</span>
+                    </p>
+                  </div>
+                </div>
+
+                <div className="bg-white p-5 rounded-2xl border border-natural-border shadow-xs flex items-center gap-4">
+                  <div className="w-12 h-12 rounded-xl bg-emerald-50 text-emerald-600 flex items-center justify-center shrink-0">
+                    <Wallet className="w-6 h-6" />
+                  </div>
+                  <div>
+                    <p className="text-[10px] font-black uppercase tracking-wider text-natural-text-muted">Total Reward Dikeluarkan</p>
+                    <p className="text-xl font-serif font-black text-emerald-700">
+                      Rp {referralRedemptions.reduce((acc, curr) => acc + (Number(curr.rewardAmount) || 0), 0).toLocaleString('id-ID')}
+                    </p>
+                    <p className="text-[10px] text-gray-500">{referralRedemptions.length} penukaran</p>
+                  </div>
+                </div>
+              </div>
+
+              {/* NAVIGATION TABS FOR REFERRAL */}
+              <div className="flex items-center gap-2 border-b border-gray-200 pb-1">
+                <button
+                  onClick={() => setReferralSubTab('transactions')}
+                  className={`px-5 py-2.5 rounded-xl text-xs font-black uppercase tracking-wider transition-all flex items-center gap-2 ${
+                    referralSubTab === 'transactions'
+                      ? 'bg-natural-primary text-white shadow-sm'
+                      : 'bg-white text-natural-text-muted hover:text-natural-text-dark border border-gray-200'
+                  }`}
+                >
+                  <Plus className="w-4 h-4" />
+                  Input & Histori Transaksi ({referralTransactions.length})
+                </button>
+
+                <button
+                  onClick={() => setReferralSubTab('partners')}
+                  className={`px-5 py-2.5 rounded-xl text-xs font-black uppercase tracking-wider transition-all flex items-center gap-2 ${
+                    referralSubTab === 'partners'
+                      ? 'bg-natural-primary text-white shadow-sm'
+                      : 'bg-white text-natural-text-muted hover:text-natural-text-dark border border-gray-200'
+                  }`}
+                >
+                  <Users className="w-4 h-4" />
+                  Database Mitra / Guide ({referralPartners.length})
+                </button>
+
+                <button
+                  onClick={() => setReferralSubTab('redeem')}
+                  className={`px-5 py-2.5 rounded-xl text-xs font-black uppercase tracking-wider transition-all flex items-center gap-2 ${
+                    referralSubTab === 'redeem'
+                      ? 'bg-natural-primary text-white shadow-sm'
+                      : 'bg-white text-natural-text-muted hover:text-natural-text-dark border border-gray-200'
+                  }`}
+                >
+                  <Coins className="w-4 h-4" />
+                  Histori Redeem Poin ({referralRedemptions.length})
+                </button>
+              </div>
+
+              {/* SUB-TAB 1: INPUT & HISTORI TRANSAKSI */}
+              {referralSubTab === 'transactions' && (
+                <div className="grid grid-cols-1 xl:grid-cols-12 gap-8 items-start">
+                  {/* LEFT FORM (5 COLS) */}
+                  <div className="xl:col-span-5 bg-white p-6 rounded-2xl border border-natural-border shadow-sm space-y-5">
+                    <div className="border-b border-gray-100 pb-3">
+                      <h3 className="font-serif text-lg font-bold text-natural-text-dark flex items-center gap-2">
+                        <Coins className="w-5 h-5 text-amber-500" />
+                        Input Transaksi Rekomendasi
+                      </h3>
+                      <p className="text-xs text-natural-text-muted mt-0.5">Catat transaksi laundry dari konsumen yang direkomendasikan mitra.</p>
+                    </div>
+
+                    <form onSubmit={handleSaveReferralTransaction} className="space-y-4">
+                      {/* Pemberi Rekomendasi Auto-Search / Select */}
+                      <div className="space-y-1.5">
+                        <div className="flex justify-between items-center">
+                          <label className="text-xs font-black text-natural-text-muted uppercase tracking-wider">
+                            Pemberi Rekomendasi (Guide / Sopir / Hotel) *
+                          </label>
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setEditingPartnerId(null);
+                              setPartnerName('');
+                              setPartnerPhone('');
+                              setPartnerRole('Tour Guide');
+                              setPartnerNotes('');
+                              setShowQuickPartnerModal(true);
+                            }}
+                            className="text-[11px] text-amber-700 font-bold hover:underline flex items-center gap-1"
+                          >
+                            <Plus className="w-3 h-3" />
+                            + Tambah Mitra Baru
+                          </button>
+                        </div>
+
+                        <div className="relative">
+                          <input
+                            type="text"
+                            placeholder="Cari nama atau No HP mitra..."
+                            value={transPartnerInput}
+                            onChange={(e) => {
+                              setTransPartnerInput(e.target.value);
+                              setTransPartnerId('');
+                            }}
+                            className="w-full px-4 py-2.5 bg-gray-50 border border-natural-border rounded-xl focus:outline-none focus:ring-1 focus:ring-natural-primary text-sm"
+                          />
+                          {transPartnerInput && (
+                            <button
+                              type="button"
+                              onClick={() => {
+                                setTransPartnerInput('');
+                                setTransPartnerId('');
+                              }}
+                              className="absolute right-3 top-3 text-gray-400 hover:text-gray-600"
+                            >
+                              <X className="w-4 h-4" />
+                            </button>
+                          )}
+                        </div>
+
+                        {/* Matching suggestions dropdown if user typed something */}
+                        {transPartnerInput && !transPartnerId && (
+                          <div className="bg-white border border-gray-200 rounded-xl shadow-lg max-h-48 overflow-y-auto divide-y divide-gray-100 text-xs">
+                            {referralPartners
+                              .filter(p => 
+                                p.name.toLowerCase().includes(transPartnerInput.toLowerCase()) ||
+                                p.phone.includes(transPartnerInput)
+                              )
+                              .slice(0, 5)
+                              .map(p => (
+                                <div
+                                  key={`suggest-${p.id}`}
+                                  onClick={() => {
+                                    setTransPartnerId(p.id!);
+                                    setTransPartnerInput(p.name);
+                                  }}
+                                  className="p-3 hover:bg-amber-50/50 cursor-pointer flex justify-between items-center transition-colors"
+                                >
+                                  <div>
+                                    <p className="font-bold text-natural-text-dark">{p.name}</p>
+                                    <p className="text-[10px] text-natural-text-muted">{p.phone} • {p.role}</p>
+                                  </div>
+                                  <span className="text-[10px] font-bold bg-amber-100 text-amber-800 px-2 py-0.5 rounded-full">
+                                    {partnerStatsMap[p.id!]?.activePoints || 0} Poin
+                                  </span>
+                                </div>
+                              ))}
+                            {referralPartners.filter(p => 
+                              p.name.toLowerCase().includes(transPartnerInput.toLowerCase()) ||
+                              p.phone.includes(transPartnerInput)
+                            ).length === 0 && (
+                              <div className="p-3 text-center text-natural-text-muted italic">
+                                Mitra tidak ditemukan.{' '}
+                                <button
+                                  type="button"
+                                  onClick={() => {
+                                    setEditingPartnerId(null);
+                                    setPartnerName(transPartnerInput);
+                                    setPartnerPhone('');
+                                    setPartnerRole('Tour Guide');
+                                    setShowQuickPartnerModal(true);
+                                  }}
+                                  className="text-amber-700 font-bold underline ml-1"
+                                >
+                                  Daftarkan "{transPartnerInput}" sekarang?
+                                </button>
+                              </div>
+                            )}
+                          </div>
+                        )}
+
+                        {/* Selected Partner Status Card */}
+                        {activeMatchedPartner && (
+                          <div className="p-3 bg-amber-50/70 border border-amber-200 rounded-xl flex items-center justify-between text-xs animate-fade-in">
+                            <div className="flex items-center gap-2">
+                              <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0" />
+                              <div>
+                                <p className="font-bold text-natural-text-dark">{activeMatchedPartner.name}</p>
+                                <p className="text-[10px] text-natural-text-muted">{activeMatchedPartner.phone} • {activeMatchedPartner.role}</p>
+                              </div>
+                            </div>
+                            <div className="text-right">
+                              <p className="text-[10px] text-natural-text-muted uppercase font-bold">Poin Aktif</p>
+                              <p className="text-sm font-black text-amber-700">
+                                {partnerStatsMap[activeMatchedPartner.id!]?.activePoints || 0} Poin
+                              </p>
+                            </div>
+                          </div>
+                        )}
+                      </div>
+
+                      {/* Tanggal Transaksi */}
+                      <div className="space-y-1">
+                        <label className="text-xs font-black text-natural-text-muted uppercase tracking-wider">Tanggal Transaksi *</label>
+                        <input
+                          type="date"
+                          required
+                          value={transDate}
+                          onChange={(e) => setTransDate(e.target.value)}
+                          className="w-full px-4 py-2.5 bg-gray-50 border border-natural-border rounded-xl focus:outline-none focus:ring-1 focus:ring-natural-primary text-sm"
+                        />
+                      </div>
+
+                      {/* Nama Konsumen / Tamu */}
+                      <div className="space-y-1">
+                        <label className="text-xs font-black text-natural-text-muted uppercase tracking-wider">Nama Konsumen / Tamu Laundry *</label>
+                        <input
+                          type="text"
+                          required
+                          placeholder="Contoh: Bpk. Budi / Kamar 204"
+                          value={transCustomerName}
+                          onChange={(e) => setTransCustomerName(e.target.value)}
+                          className="w-full px-4 py-2.5 bg-gray-50 border border-natural-border rounded-xl focus:outline-none focus:ring-1 focus:ring-natural-primary text-sm"
+                        />
+                      </div>
+
+                      {/* Nilai Transaksi */}
+                      <div className="space-y-1">
+                        <label className="text-xs font-black text-natural-text-muted uppercase tracking-wider">Nilai Transaksi (Rp) *</label>
+                        <input
+                          type="number"
+                          required
+                          min="1"
+                          placeholder="Contoh: 150000"
+                          value={transAmount}
+                          onChange={(e) => setTransAmount(e.target.value)}
+                          className="w-full px-4 py-2.5 bg-gray-50 border border-natural-border rounded-xl focus:outline-none focus:ring-1 focus:ring-natural-primary text-sm"
+                        />
+                        {transAmount && Number(transAmount) > 0 && (
+                          <p className="text-[11px] text-emerald-700 font-bold flex items-center gap-1 mt-1">
+                            <Sparkles className="w-3.5 h-3.5" />
+                            Poin Diperoleh: +{Math.floor(Number(transAmount) / 10000)} Poin (Setiap Rp 10.000 = 1 Poin)
+                          </p>
+                        )}
+                      </div>
+
+                      {/* Catatan / Nota */}
+                      <div className="space-y-1">
+                        <label className="text-xs font-black text-natural-text-muted uppercase tracking-wider">Catatan / Nomor Nota (Opsional)</label>
+                        <input
+                          type="text"
+                          placeholder="Contoh: Nota #1024, Express Kiloan"
+                          value={transNotes}
+                          onChange={(e) => setTransNotes(e.target.value)}
+                          className="w-full px-4 py-2.5 bg-gray-50 border border-natural-border rounded-xl focus:outline-none focus:ring-1 focus:ring-natural-primary text-sm"
+                        />
+                      </div>
+
+                      <button
+                        type="submit"
+                        disabled={isSavingTrans}
+                        className="w-full py-3 bg-natural-primary hover:bg-natural-primary/90 text-white font-bold text-sm rounded-xl shadow-md transition-all flex items-center justify-center gap-2"
+                      >
+                        {isSavingTrans ? (
+                          <Loader2 className="w-5 h-5 animate-spin" />
+                        ) : (
+                          <>
+                            <Check className="w-5 h-5" />
+                            Simpan Transaksi Rekomendasi
+                          </>
+                        )}
+                      </button>
+                    </form>
+                  </div>
+
+                  {/* RIGHT HISTORY LIST (7 COLS) */}
+                  <div className="xl:col-span-7 bg-white p-6 rounded-2xl border border-natural-border shadow-sm space-y-4">
+                    <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-3 border-b border-gray-100 pb-3">
+                      <div>
+                        <h3 className="font-serif text-lg font-bold text-natural-text-dark">Riwayat Transaksi Rekomendasi</h3>
+                        <p className="text-xs text-natural-text-muted">Total {referralTransactions.length} transaksi tercatat.</p>
+                      </div>
+
+                      <div className="relative w-full sm:w-64">
+                        <Search className="w-4 h-4 text-gray-400 absolute left-3 top-2.5" />
+                        <input
+                          type="text"
+                          placeholder="Cari transaksi / mitra..."
+                          value={referralSearch}
+                          onChange={(e) => setReferralSearch(e.target.value)}
+                          className="w-full pl-9 pr-3 py-1.5 bg-gray-50 border border-natural-border rounded-xl text-xs focus:outline-none focus:ring-1 focus:ring-natural-primary"
+                        />
+                      </div>
+                    </div>
+
+                    <div className="space-y-3 max-h-[600px] overflow-y-auto pr-1">
+                      {referralTransactions.length === 0 ? (
+                        <div className="p-12 text-center text-natural-text-muted text-xs italic">
+                          Belum ada transaksi rekomendasi yang tercatat.
+                        </div>
+                      ) : (
+                        referralTransactions
+                          .filter(t => {
+                            const queryStr = referralSearch.toLowerCase().trim();
+                            if (!queryStr) return true;
+                            return (
+                              (t.partnerName && t.partnerName.toLowerCase().includes(queryStr)) ||
+                              (t.partnerPhone && t.partnerPhone.includes(queryStr)) ||
+                              (t.customerName && t.customerName.toLowerCase().includes(queryStr)) ||
+                              (t.notes && t.notes.toLowerCase().includes(queryStr))
+                            );
+                          })
+                          .map(t => (
+                            <div
+                              key={`ref-tx-${t.id}`}
+                              className="p-4 bg-gray-50/70 hover:bg-gray-50 border border-gray-200/80 rounded-xl transition-all flex flex-col sm:flex-row justify-between items-start sm:items-center gap-3"
+                            >
+                              <div className="space-y-1">
+                                <div className="flex items-center gap-2 flex-wrap">
+                                  <span className="text-[10px] font-bold text-gray-500 bg-white px-2 py-0.5 rounded border">
+                                    {t.date}
+                                  </span>
+                                  <span className="text-xs font-bold text-amber-800 bg-amber-100 px-2.5 py-0.5 rounded-full flex items-center gap-1">
+                                    <User className="w-3 h-3" />
+                                    {t.partnerName} ({t.partnerPhone})
+                                  </span>
+                                </div>
+
+                                <p className="text-sm font-bold text-natural-text-dark">
+                                  Konsumen: <span className="font-semibold text-natural-primary">{t.customerName}</span>
+                                </p>
+                                {t.notes && (
+                                  <p className="text-xs text-natural-text-muted italic">
+                                    📝 {t.notes}
+                                  </p>
+                                )}
+                              </div>
+
+                              <div className="flex items-center justify-between sm:justify-end w-full sm:w-auto gap-4 pt-2 sm:pt-0 border-t sm:border-0 border-gray-200">
+                                <div className="text-left sm:text-right">
+                                  <p className="text-sm font-serif font-black text-natural-text-dark">
+                                    Rp {Number(t.amount).toLocaleString('id-ID')}
+                                  </p>
+                                  <span className="text-xs font-bold text-emerald-700 bg-emerald-100 px-2 py-0.5 rounded-md inline-block">
+                                    +{t.pointsEarned} Poin
+                                  </span>
+                                </div>
+
+                                <button
+                                  onClick={() => handleDeleteReferralTransaction(t.id!)}
+                                  className="p-2 text-red-500 hover:bg-red-50 rounded-lg transition-colors"
+                                  title="Hapus Transaksi"
+                                >
+                                  <Trash2 className="w-4 h-4" />
+                                </button>
+                              </div>
+                            </div>
+                          ))
+                      )}
+                    </div>
+                  </div>
+                </div>
+              )}
+
+              {/* SUB-TAB 2: DATABASE MITRA / PEMBERI REKOMENDASI */}
+              {referralSubTab === 'partners' && (
+                <div className="bg-white p-6 rounded-2xl border border-natural-border shadow-sm space-y-6">
+                  <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 border-b border-gray-100 pb-4">
+                    <div>
+                      <h3 className="font-serif text-xl font-bold text-natural-text-dark">Database Mitra / Pemberi Rekomendasi</h3>
+                      <p className="text-xs text-natural-text-muted">Kelola data guide, sopir, hotel, atau kolega yang sering merekomendasikan Dina Laundry.</p>
+                    </div>
+
+                    <div className="flex items-center gap-3 w-full sm:w-auto">
+                      <div className="relative flex-1 sm:w-64">
+                        <Search className="w-4 h-4 text-gray-400 absolute left-3 top-2.5" />
+                        <input
+                          type="text"
+                          placeholder="Cari nama / HP mitra..."
+                          value={referralSearch}
+                          onChange={(e) => setReferralSearch(e.target.value)}
+                          className="w-full pl-9 pr-3 py-1.5 bg-gray-50 border border-natural-border rounded-xl text-xs focus:outline-none focus:ring-1 focus:ring-natural-primary"
+                        />
+                      </div>
+
+                      <button
+                        onClick={() => {
+                          setEditingPartnerId(null);
+                          setPartnerName('');
+                          setPartnerPhone('');
+                          setPartnerRole('Tour Guide');
+                          setPartnerNotes('');
+                          setShowQuickPartnerModal(true);
+                        }}
+                        className="px-4 py-2 bg-amber-500 hover:bg-amber-600 text-white font-bold text-xs rounded-xl flex items-center gap-2 shadow-xs transition-colors shrink-0"
+                      >
+                        <Plus className="w-4 h-4" />
+                        Tambah Mitra Baru
+                      </button>
+                    </div>
+                  </div>
+
+                  {/* PARTNERS GRID */}
+                  <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-5">
+                    {referralPartners.length === 0 ? (
+                      <div className="col-span-full py-16 text-center text-natural-text-muted text-xs italic">
+                        Belum ada data mitra / pemberi rekomendasi. Klik "+ Tambah Mitra Baru" untuk mendaftarkan.
+                      </div>
+                    ) : (
+                      referralPartners
+                        .filter(p => {
+                          const queryStr = referralSearch.toLowerCase().trim();
+                          if (!queryStr) return true;
+                          return (
+                            (p.name && p.name.toLowerCase().includes(queryStr)) ||
+                            (p.phone && p.phone.includes(queryStr)) ||
+                            (p.role && p.role.toLowerCase().includes(queryStr))
+                          );
+                        })
+                        .map(p => {
+                          const stats = partnerStatsMap[p.id!] || {
+                            totalTxAmount: 0,
+                            txCount: 0,
+                            totalPointsEarned: 0,
+                            totalPointsRedeemed: 0,
+                            activePoints: 0,
+                            totalRewardReceived: 0
+                          };
+
+                          return (
+                            <div
+                              key={`partner-card-${p.id}`}
+                              className="p-5 bg-white border border-natural-border hover:border-amber-300 rounded-2xl shadow-xs transition-all space-y-4 relative group"
+                            >
+                              <div className="flex justify-between items-start gap-2">
+                                <div className="space-y-0.5">
+                                  <div className="flex items-center gap-2">
+                                    <span className="text-[10px] font-black uppercase tracking-wider bg-amber-100 text-amber-800 px-2 py-0.5 rounded-md">
+                                      {p.role || 'Partner'}
+                                    </span>
+                                  </div>
+                                  <h4 className="font-serif font-bold text-lg text-natural-text-dark">{p.name}</h4>
+                                  <p className="text-xs text-natural-text-muted flex items-center gap-1 font-mono">
+                                    <PhoneCall className="w-3 h-3 text-amber-600" />
+                                    {p.phone}
+                                  </p>
+                                </div>
+
+                                <div className="flex items-center gap-1">
+                                  <button
+                                    onClick={() => handleEditPartner(p)}
+                                    className="p-1.5 text-gray-400 hover:text-amber-600 hover:bg-amber-50 rounded-lg transition-colors"
+                                    title="Edit Data Mitra"
+                                  >
+                                    <Pencil className="w-4 h-4" />
+                                  </button>
+                                  <button
+                                    onClick={() => handleDeletePartner(p.id!, p.name)}
+                                    className="p-1.5 text-gray-400 hover:text-red-600 hover:bg-red-50 rounded-lg transition-colors"
+                                    title="Hapus Mitra"
+                                  >
+                                    <Trash2 className="w-4 h-4" />
+                                  </button>
+                                </div>
+                              </div>
+
+                              {p.notes && (
+                                <p className="text-xs text-natural-text-muted bg-gray-50 p-2.5 rounded-xl italic">
+                                  "{p.notes}"
+                                </p>
+                              )}
+
+                              {/* STATS MATRIX */}
+                              <div className="grid grid-cols-2 gap-2 pt-2 border-t border-gray-100 text-xs">
+                                <div className="bg-gray-50 p-2.5 rounded-xl">
+                                  <p className="text-[10px] text-gray-500 font-bold uppercase">Total Rekomendasi</p>
+                                  <p className="font-serif font-black text-natural-text-dark text-sm">
+                                    Rp {stats.totalTxAmount.toLocaleString('id-ID')}
+                                  </p>
+                                  <p className="text-[10px] text-gray-400">{stats.txCount} transaksi</p>
+                                </div>
+
+                                <div className="bg-amber-50/80 p-2.5 rounded-xl border border-amber-100">
+                                  <p className="text-[10px] text-amber-800 font-bold uppercase">Sisa Poin Aktif</p>
+                                  <p className="font-serif font-black text-amber-700 text-base">
+                                    {stats.activePoints} Poin
+                                  </p>
+                                  <p className="text-[9px] text-amber-600">Total dapat: {stats.totalPointsEarned} Poin</p>
+                                </div>
+                              </div>
+
+                              {/* ACTION BUTTONS */}
+                              <div className="flex gap-2 pt-1">
+                                <button
+                                  onClick={() => {
+                                    setTransPartnerId(p.id!);
+                                    setTransPartnerInput(p.name);
+                                    setReferralSubTab('transactions');
+                                  }}
+                                  className="flex-1 py-2 bg-gray-100 hover:bg-gray-200 text-natural-text-dark font-bold text-xs rounded-xl transition-colors flex items-center justify-center gap-1"
+                                >
+                                  <Plus className="w-3.5 h-3.5" />
+                                  Input Transaksi
+                                </button>
+
+                                <button
+                                  onClick={() => {
+                                    setRedeemPartnerId(p.id!);
+                                    setRedeemPointsInput('');
+                                    setRedeemRewardInput('');
+                                    setRedeemNotesInput('');
+                                    setShowRedeemModal(true);
+                                  }}
+                                  disabled={stats.activePoints <= 0}
+                                  className={`px-3 py-2 font-bold text-xs rounded-xl transition-colors flex items-center gap-1 ${
+                                    stats.activePoints > 0
+                                      ? 'bg-emerald-600 hover:bg-emerald-700 text-white'
+                                      : 'bg-gray-100 text-gray-400 cursor-not-allowed'
+                                  }`}
+                                >
+                                  <Coins className="w-3.5 h-3.5" />
+                                  Redeem Poin
+                                </button>
+                              </div>
+                            </div>
+                          );
+                        })
+                    )}
+                  </div>
+                </div>
+              )}
+
+              {/* SUB-TAB 3: HISTORI REDEEM POIN */}
+              {referralSubTab === 'redeem' && (
+                <div className="bg-white p-6 rounded-2xl border border-natural-border shadow-sm space-y-5">
+                  <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 border-b border-gray-100 pb-4">
+                    <div>
+                      <h3 className="font-serif text-xl font-bold text-natural-text-dark flex items-center gap-2">
+                        <Coins className="w-5 h-5 text-emerald-600" />
+                        Histori Klaim & Penukaran Poin Reward
+                      </h3>
+                      <p className="text-xs text-natural-text-muted">Catatan penyerahan komisi / reward tunai kepada mitra pemberi rekomendasi.</p>
+                    </div>
+
+                    <button
+                      onClick={() => {
+                        setRedeemPartnerId('');
+                        setRedeemPointsInput('');
+                        setRedeemRewardInput('');
+                        setRedeemNotesInput('');
+                        setShowRedeemModal(true);
+                      }}
+                      className="px-4 py-2.5 bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-xs rounded-xl flex items-center gap-2 shadow-sm transition-colors"
+                    >
+                      <Plus className="w-4 h-4" />
+                      + Catat Penukaran Poin Baru
+                    </button>
+                  </div>
+
+                  <div className="space-y-3">
+                    {referralRedemptions.length === 0 ? (
+                      <div className="p-16 text-center text-natural-text-muted text-xs italic">
+                        Belum ada riwayat penukaran poin.
+                      </div>
+                    ) : (
+                      referralRedemptions.map(r => (
+                        <div
+                          key={`redeem-row-${r.id}`}
+                          className="p-4 bg-emerald-50/40 border border-emerald-100 rounded-2xl flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4"
+                        >
+                          <div className="space-y-1">
+                            <div className="flex items-center gap-2">
+                              <span className="text-[10px] font-bold text-gray-500 bg-white px-2 py-0.5 rounded border">
+                                {r.date}
+                              </span>
+                              <span className="text-xs font-bold text-emerald-800 bg-emerald-100 px-2.5 py-0.5 rounded-full">
+                                {r.partnerName} ({r.partnerPhone})
+                              </span>
+                            </div>
+
+                            <p className="text-sm font-bold text-natural-text-dark">
+                              Nominal Reward: <span className="text-emerald-700 font-serif font-black text-base">Rp {Number(r.rewardAmount || 0).toLocaleString('id-ID')}</span>
+                            </p>
+                            {r.notes && (
+                              <p className="text-xs text-natural-text-muted italic">
+                                📌 {r.notes}
+                              </p>
+                            )}
+                          </div>
+
+                          <div className="flex items-center justify-between sm:justify-end w-full sm:w-auto gap-4">
+                            <div className="text-left sm:text-right">
+                              <p className="text-xs font-bold text-red-600 bg-red-50 border border-red-100 px-3 py-1 rounded-xl">
+                                -{r.pointsRedeemed} Poin
+                              </p>
+                            </div>
+
+                            <button
+                              onClick={() => handleDeleteRedemption(r.id!)}
+                              className="p-2 text-red-500 hover:bg-red-100 rounded-lg transition-colors"
+                              title="Batalkan / Hapus Redeem"
+                            >
+                              <Trash2 className="w-4 h-4" />
+                            </button>
+                          </div>
+                        </div>
+                      ))
+                    )}
+                  </div>
+                </div>
+              )}
+
+              {/* MODAL: DAFTAR / EDIT MITRA QUICK MODAL */}
+              {showQuickPartnerModal && (
+                <div className="fixed inset-0 bg-black/50 backdrop-blur-xs flex items-center justify-center p-4 z-50 animate-fade-in">
+                  <div className="bg-white rounded-2xl max-w-md w-full p-6 space-y-5 border border-natural-border shadow-xl">
+                    <div className="flex justify-between items-center border-b border-gray-100 pb-3">
+                      <h3 className="font-serif font-bold text-lg text-natural-text-dark flex items-center gap-2">
+                        <User className="w-5 h-5 text-amber-600" />
+                        {editingPartnerId ? 'Edit Data Mitra' : 'Daftarkan Pemberi Rekomendasi'}
+                      </h3>
+                      <button
+                        onClick={() => setShowQuickPartnerModal(false)}
+                        className="text-gray-400 hover:text-gray-600"
+                      >
+                        <X className="w-5 h-5" />
+                      </button>
+                    </div>
+
+                    <form onSubmit={handleSavePartner} className="space-y-4">
+                      <div className="space-y-1">
+                        <label className="text-xs font-black text-natural-text-muted uppercase tracking-wider">Nama Lengkap Mitra / Guide *</label>
+                        <input
+                          type="text"
+                          required
+                          placeholder="Contoh: Pak Nyoman Guide"
+                          value={partnerName}
+                          onChange={(e) => setPartnerName(e.target.value)}
+                          className="w-full px-4 py-2.5 bg-gray-50 border border-natural-border rounded-xl focus:outline-none focus:ring-1 focus:ring-natural-primary text-sm"
+                        />
+                      </div>
+
+                      <div className="space-y-1">
+                        <label className="text-xs font-black text-natural-text-muted uppercase tracking-wider">Nomor WhatsApp / HP *</label>
+                        <input
+                          type="text"
+                          required
+                          placeholder="Contoh: 08123456789"
+                          value={partnerPhone}
+                          onChange={(e) => setPartnerPhone(e.target.value)}
+                          className="w-full px-4 py-2.5 bg-gray-50 border border-natural-border rounded-xl focus:outline-none focus:ring-1 focus:ring-natural-primary text-sm"
+                        />
+                      </div>
+
+                      <div className="space-y-1">
+                        <label className="text-xs font-black text-natural-text-muted uppercase tracking-wider">Pekerjaan / Peran</label>
+                        <select
+                          value={partnerRole}
+                          onChange={(e) => setPartnerRole(e.target.value)}
+                          className="w-full px-4 py-2.5 bg-gray-50 border border-natural-border rounded-xl focus:outline-none focus:ring-1 focus:ring-natural-primary text-sm"
+                        >
+                          <option value="Tour Guide">Tour Guide / Pemandu Wisata</option>
+                          <option value="Driver / Sopir">Driver / Sopir Travel</option>
+                          <option value="Hotel / Villa Staff">Resepsionis Hotel / Villa</option>
+                          <option value="Kolega / Teman">Kolega / Pelanggan Loyal</option>
+                          <option value="Lainnya">Lainnya</option>
+                        </select>
+                      </div>
+
+                      <div className="space-y-1">
+                        <label className="text-xs font-black text-natural-text-muted uppercase tracking-wider">Catatan Tambahan (Opsional)</label>
+                        <textarea
+                          placeholder="Contoh: Guide Bali Tours, bahasa Inggris & Jepang..."
+                          value={partnerNotes}
+                          onChange={(e) => setPartnerNotes(e.target.value)}
+                          rows={2}
+                          className="w-full px-4 py-2.5 bg-gray-50 border border-natural-border rounded-xl focus:outline-none focus:ring-1 focus:ring-natural-primary text-sm"
+                        />
+                      </div>
+
+                      <div className="flex gap-3 pt-2">
+                        <button
+                          type="button"
+                          onClick={() => setShowQuickPartnerModal(false)}
+                          className="flex-1 py-2.5 bg-gray-100 hover:bg-gray-200 text-gray-700 font-bold text-xs rounded-xl"
+                        >
+                          Batal
+                        </button>
+                        <button
+                          type="submit"
+                          disabled={isSavingPartner}
+                          className="flex-1 py-2.5 bg-amber-500 hover:bg-amber-600 text-white font-bold text-xs rounded-xl flex items-center justify-center gap-2 shadow-sm"
+                        >
+                          {isSavingPartner ? (
+                            <Loader2 className="w-4 h-4 animate-spin" />
+                          ) : (
+                            'Simpan Database'
+                          )}
+                        </button>
+                      </div>
+                    </form>
+                  </div>
+                </div>
+              )}
+
+              {/* MODAL: REDEEM POIN REWARD */}
+              {showRedeemModal && (
+                <div className="fixed inset-0 bg-black/50 backdrop-blur-xs flex items-center justify-center p-4 z-50 animate-fade-in">
+                  <div className="bg-white rounded-2xl max-w-md w-full p-6 space-y-5 border border-natural-border shadow-xl">
+                    <div className="flex justify-between items-center border-b border-gray-100 pb-3">
+                      <h3 className="font-serif font-bold text-lg text-natural-text-dark flex items-center gap-2">
+                        <Coins className="w-5 h-5 text-emerald-600" />
+                        Penukaran / Redeem Poin Reward
+                      </h3>
+                      <button
+                        onClick={() => setShowRedeemModal(false)}
+                        className="text-gray-400 hover:text-gray-600"
+                      >
+                        <X className="w-5 h-5" />
+                      </button>
+                    </div>
+
+                    <form onSubmit={handleSaveRedemption} className="space-y-4">
+                      {/* Select Partner */}
+                      <div className="space-y-1">
+                        <label className="text-xs font-black text-natural-text-muted uppercase tracking-wider">Pilih Mitra Pemberi Rekomendasi *</label>
+                        <select
+                          required
+                          value={redeemPartnerId}
+                          onChange={(e) => {
+                            setRedeemPartnerId(e.target.value);
+                            const pStats = partnerStatsMap[e.target.value];
+                            if (pStats && pStats.activePoints > 0) {
+                              setRedeemPointsInput(pStats.activePoints.toString());
+                              setRedeemRewardInput((pStats.activePoints * 1000).toString()); // Default example estimate Rp 1.000 per point
+                            }
+                          }}
+                          className="w-full px-4 py-2.5 bg-gray-50 border border-natural-border rounded-xl focus:outline-none focus:ring-1 focus:ring-natural-primary text-sm font-semibold"
+                        >
+                          <option value="">-- Pilih Mitra --</option>
+                          {referralPartners.map(p => {
+                            const activePts = partnerStatsMap[p.id!]?.activePoints || 0;
+                            return (
+                              <option key={`redeem-opt-${p.id}`} value={p.id}>
+                                {p.name} ({p.phone}) — Sisa: {activePts} Poin
+                              </option>
+                            );
+                          })}
+                        </select>
+                      </div>
+
+                      {/* Live Points Info */}
+                      {redeemPartnerId && partnerStatsMap[redeemPartnerId] && (
+                        <div className="p-3 bg-emerald-50 border border-emerald-200 rounded-xl flex items-center justify-between text-xs">
+                          <div>
+                            <p className="text-emerald-800 font-bold">Saldo Poin Aktif Saat Ini</p>
+                            <p className="text-[10px] text-emerald-600">
+                              Dapat ditukarkan dengan komisi / voucher.
+                            </p>
+                          </div>
+                          <p className="text-lg font-serif font-black text-emerald-700">
+                            {partnerStatsMap[redeemPartnerId].activePoints} Poin
+                          </p>
+                        </div>
+                      )}
+
+                      {/* Tanggal Redeem */}
+                      <div className="space-y-1">
+                        <label className="text-xs font-black text-natural-text-muted uppercase tracking-wider">Tanggal Penukaran *</label>
+                        <input
+                          type="date"
+                          required
+                          value={redeemDate}
+                          onChange={(e) => setRedeemDate(e.target.value)}
+                          className="w-full px-4 py-2.5 bg-gray-50 border border-natural-border rounded-xl focus:outline-none focus:ring-1 focus:ring-natural-primary text-sm"
+                        />
+                      </div>
+
+                      {/* Jumlah Poin Ditukar */}
+                      <div className="space-y-1">
+                        <label className="text-xs font-black text-natural-text-muted uppercase tracking-wider">Jumlah Poin Yang Ditukar *</label>
+                        <input
+                          type="number"
+                          required
+                          min="1"
+                          placeholder="Contoh: 10"
+                          value={redeemPointsInput}
+                          onChange={(e) => setRedeemPointsInput(e.target.value)}
+                          className="w-full px-4 py-2.5 bg-gray-50 border border-natural-border rounded-xl focus:outline-none focus:ring-1 focus:ring-natural-primary text-sm font-bold"
+                        />
+                      </div>
+
+                      {/* Nominal Reward / Komisi (Rp) */}
+                      <div className="space-y-1">
+                        <label className="text-xs font-black text-natural-text-muted uppercase tracking-wider">Nominal Reward / Komisi Diberikan (Rp)</label>
+                        <input
+                          type="number"
+                          placeholder="Contoh: 100000"
+                          value={redeemRewardInput}
+                          onChange={(e) => setRedeemRewardInput(e.target.value)}
+                          className="w-full px-4 py-2.5 bg-gray-50 border border-natural-border rounded-xl focus:outline-none focus:ring-1 focus:ring-natural-primary text-sm font-bold"
+                        />
+                      </div>
+
+                      {/* Catatan / Bukti */}
+                      <div className="space-y-1">
+                        <label className="text-xs font-black text-natural-text-muted uppercase tracking-wider">Catatan / Keterangan Penyerahan</label>
+                        <input
+                          type="text"
+                          placeholder="Contoh: Tunai / Transfer BCA, diserahkan oleh Staff Dina"
+                          value={redeemNotesInput}
+                          onChange={(e) => setRedeemNotesInput(e.target.value)}
+                          className="w-full px-4 py-2.5 bg-gray-50 border border-natural-border rounded-xl focus:outline-none focus:ring-1 focus:ring-natural-primary text-sm"
+                        />
+                      </div>
+
+                      <div className="flex gap-3 pt-2">
+                        <button
+                          type="button"
+                          onClick={() => setShowRedeemModal(false)}
+                          className="flex-1 py-2.5 bg-gray-100 hover:bg-gray-200 text-gray-700 font-bold text-xs rounded-xl"
+                        >
+                          Batal
+                        </button>
+                        <button
+                          type="submit"
+                          disabled={isSavingRedemption}
+                          className="flex-1 py-2.5 bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-xs rounded-xl flex items-center justify-center gap-2 shadow-sm"
+                        >
+                          {isSavingRedemption ? (
+                            <Loader2 className="w-4 h-4 animate-spin" />
+                          ) : (
+                            'Proses Redeem Poin'
+                          )}
+                        </button>
+                      </div>
+                    </form>
+                  </div>
+                </div>
+              )}
             </motion.div>
           ) : (
             <motion.div
