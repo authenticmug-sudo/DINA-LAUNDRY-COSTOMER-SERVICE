@@ -1419,6 +1419,7 @@ export default function App() {
     setPartnerRole(p.role || 'Tour Guide');
     setPartnerNotes(p.notes || '');
     setReferralSubTab('partners');
+    setShowQuickPartnerModal(true);
   };
 
   const handleDeletePartner = async (partnerId: string, name: string) => {
@@ -3985,7 +3986,14 @@ export default function App() {
                         {editingPartnerId ? 'Edit Data Mitra' : 'Daftarkan Pemberi Rekomendasi'}
                       </h3>
                       <button
-                        onClick={() => setShowQuickPartnerModal(false)}
+                        onClick={() => {
+                          setShowQuickPartnerModal(false);
+                          setEditingPartnerId(null);
+                          setPartnerName('');
+                          setPartnerPhone('');
+                          setPartnerRole('Tour Guide');
+                          setPartnerNotes('');
+                        }}
                         className="text-gray-400 hover:text-gray-600"
                       >
                         <X className="w-5 h-5" />
@@ -4046,7 +4054,14 @@ export default function App() {
                       <div className="flex gap-3 pt-2">
                         <button
                           type="button"
-                          onClick={() => setShowQuickPartnerModal(false)}
+                          onClick={() => {
+                            setShowQuickPartnerModal(false);
+                            setEditingPartnerId(null);
+                            setPartnerName('');
+                            setPartnerPhone('');
+                            setPartnerRole('Tour Guide');
+                            setPartnerNotes('');
+                          }}
                           className="flex-1 py-2.5 bg-gray-100 hover:bg-gray-200 text-gray-700 font-bold text-xs rounded-xl"
                         >
                           Batal
