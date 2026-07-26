@@ -129,7 +129,7 @@ export default function App() {
   const [filterDate, setFilterDate] = useState('');
   const [adminPassword, setAdminPassword] = useState('');
   const [isAdminAuthenticated, setIsAdminAuthenticated] = useState(false);
-  const [adminCategory, setAdminCategory] = useState<'followups' | 'progress' | 'vouchers'>('followups');
+  const [adminCategory, setAdminCategory] = useState<'followups' | 'progress' | 'vouchers' | 'redeem_guide' | 'referrals'>('followups');
   const [bulkDeleteMonth, setBulkDeleteMonth] = useState('');
   const [bulkDeleteCategory, setBulkDeleteCategory] = useState<'followups' | 'progress'>('followups');
   const [isBulkDeleting, setIsBulkDeleting] = useState(false);
@@ -187,14 +187,14 @@ export default function App() {
   const [transDate, setTransDate] = useState(new Date().toISOString().split('T')[0]);
   const [transCustomerName, setTransCustomerName] = useState('');
   const [transAmount, setTransAmount] = useState('');
+  const [transCommission, setTransCommission] = useState('');
   const [transNotes, setTransNotes] = useState('');
   const [isSavingTrans, setIsSavingTrans] = useState(false);
   const [showQuickPartnerModal, setShowQuickPartnerModal] = useState(false);
 
-  // Form State: Point Redemption / Reward Claim
+  // Form State: Commission Payout / Disbursement
   const [redeemPartnerId, setRedeemPartnerId] = useState('');
   const [redeemDate, setRedeemDate] = useState(new Date().toISOString().split('T')[0]);
-  const [redeemPointsInput, setRedeemPointsInput] = useState('');
   const [redeemRewardInput, setRedeemRewardInput] = useState('');
   const [redeemNotesInput, setRedeemNotesInput] = useState('');
   const [isSavingRedemption, setIsSavingRedemption] = useState(false);
@@ -788,6 +788,54 @@ export default function App() {
     });
   }, [vouchers, searchPic, filterMonth, filterDate]);
 
+  const filteredRedemptionsAdmin = useMemo(() => {
+    return referralRedemptions.filter(r => {
+      let rDateStr = r.date || '';
+      let rMonthYear = '';
+      if (rDateStr && rDateStr.length >= 7) {
+        const [year, month] = rDateStr.split('-');
+        if (year && month) {
+          rMonthYear = `${month}-${year}`;
+        }
+      }
+
+      const query = searchPic.trim().toLowerCase();
+      const matchSearch = query === '' ||
+        (r.partnerName && r.partnerName.toLowerCase().includes(query)) ||
+        (r.partnerPhone && r.partnerPhone.includes(query)) ||
+        (r.notes && r.notes.toLowerCase().includes(query));
+
+      const matchMonth = filterMonth ? rMonthYear === filterMonth : true;
+      const matchDate = filterDate ? rDateStr === filterDate : true;
+
+      return matchSearch && matchMonth && matchDate;
+    });
+  }, [referralRedemptions, searchPic, filterMonth, filterDate]);
+
+  const filteredReferralsAdmin = useMemo(() => {
+    return referralTransactions.filter(t => {
+      let tDateStr = t.date || '';
+      let tMonthYear = '';
+      if (tDateStr && tDateStr.length >= 7) {
+        const [year, month] = tDateStr.split('-');
+        if (year && month) {
+          tMonthYear = `${month}-${year}`;
+        }
+      }
+
+      const query = searchPic.trim().toLowerCase();
+      const matchSearch = query === '' ||
+        (t.partnerName && t.partnerName.toLowerCase().includes(query)) ||
+        (t.customerName && t.customerName.toLowerCase().includes(query)) ||
+        (t.notes && t.notes.toLowerCase().includes(query));
+
+      const matchMonth = filterMonth ? tMonthYear === filterMonth : true;
+      const matchDate = filterDate ? tDateStr === filterDate : true;
+
+      return matchSearch && matchMonth && matchDate;
+    });
+  }, [referralTransactions, searchPic, filterMonth, filterDate]);
+
   const handleProgressFileUpload = async (event: React.ChangeEvent<HTMLInputElement>) => {
     const file = event.target.files?.[0];
     if (file) {
@@ -873,62 +921,91 @@ export default function App() {
   };
 
   const downloadCSV = () => {
-    const dataToExport = adminCategory === 'followups' ? filteredFollowups.map(f => ({
-      Tanggal: f.date,
-      Nama_Konsumen: f.customerName,
-      No_HP: f.customerPhone,
-      PIC: f.pic,
-      Caption: f.caption,
-      Bulan_Tahun: f.monthYear,
-      URL_Screenshot: f.screenshotUrl
-    })) : adminCategory === 'progress' ? filteredProgress.map(p => ({
-      Tanggal_Progress: p.date,
-      Nama_Konsumen: p.customerName,
-      Hasil: p.outcome,
-      Media: p.channels.join(', '),
-      PIC: p.pic,
-      Keterangan: p.caption,
-      URL_Screenshot: p.screenshotUrl
-    })) : filteredVouchersAdmin.map(v => {
-      let createdDateStr = '-';
-      if (v.createdAt) {
-        let d: Date | null = null;
-        if (typeof v.createdAt.toDate === 'function') {
-          d = v.createdAt.toDate();
-        } else if (v.createdAt.seconds) {
-          d = new Date(v.createdAt.seconds * 1000);
-        } else if (v.createdAt instanceof Date) {
-          d = v.createdAt;
-        } else {
-          d = new Date(v.createdAt);
-        }
-        if (d && !isNaN(d.getTime())) {
-          createdDateStr = d.toLocaleString('id-ID');
-        }
-      }
+    let dataToExport: any[] = [];
+    let filePrefix = 'export';
 
-      return {
-        Nama_Konsumen: v.customerName || '-',
-        No_HP_Konsumen: v.customerPhone || '-',
-        Kode_Voucher: v.code,
-        Tipe_Benefit: v.type,
-        Detail_Benefit: getVoucherBenefitText(v),
-        Minimal_Transaksi: v.minTransaction || 0,
-        Masa_Berlaku: v.expiryDate,
-        Tanggal_Voucher_Dibuat: createdDateStr,
-        Tanggal_Voucher_Diredeem: v.redeemedAt || '-',
-        PIC_Penukar: v.redeemedBy || '-',
-        Status_Penggunaan: v.isRedeemed ? 'Sudah Digunakan' : 'Belum Digunakan'
-      };
-    });
+    if (adminCategory === 'followups') {
+      filePrefix = 'followup_awal';
+      dataToExport = filteredFollowups.map(f => ({
+        Tanggal: f.date,
+        Nama_Konsumen: f.customerName,
+        No_HP: f.customerPhone,
+        PIC: f.pic,
+        Caption: f.caption,
+        Bulan_Tahun: f.monthYear,
+        URL_Screenshot: f.screenshotUrl
+      }));
+    } else if (adminCategory === 'progress') {
+      filePrefix = 'progress_followup';
+      dataToExport = filteredProgress.map(p => ({
+        Tanggal_Progress: p.date,
+        Nama_Konsumen: p.customerName,
+        Hasil: p.outcome,
+        Media: p.channels.join(', '),
+        PIC: p.pic,
+        Keterangan: p.caption,
+        URL_Screenshot: p.screenshotUrl
+      }));
+    } else if (adminCategory === 'vouchers') {
+      filePrefix = 'data_voucher';
+      dataToExport = filteredVouchersAdmin.map(v => {
+        let createdDateStr = '-';
+        if (v.createdAt) {
+          let d: Date | null = null;
+          if (typeof v.createdAt.toDate === 'function') {
+            d = v.createdAt.toDate();
+          } else if (v.createdAt.seconds) {
+            d = new Date(v.createdAt.seconds * 1000);
+          } else if (v.createdAt instanceof Date) {
+            d = v.createdAt;
+          } else {
+            d = new Date(v.createdAt);
+          }
+          if (d && !isNaN(d.getTime())) {
+            createdDateStr = d.toLocaleString('id-ID');
+          }
+        }
+
+        return {
+          Nama_Konsumen: v.customerName || '-',
+          No_HP_Konsumen: v.customerPhone || '-',
+          Kode_Voucher: v.code,
+          Tipe_Benefit: v.type,
+          Detail_Benefit: getVoucherBenefitText(v),
+          Minimal_Transaksi: v.minTransaction || 0,
+          Masa_Berlaku: v.expiryDate,
+          Tanggal_Voucher_Dibuat: createdDateStr,
+          Tanggal_Voucher_Diredeem: v.redeemedAt || '-',
+          PIC_Penukar: v.redeemedBy || '-',
+          Status_Penggunaan: v.isRedeemed ? 'Sudah Digunakan' : 'Belum Digunakan'
+        };
+      });
+    } else if (adminCategory === 'redeem_guide') {
+      filePrefix = 'penyerahan_komisi_guide';
+      dataToExport = filteredRedemptionsAdmin.map(r => ({
+        Tanggal_Penyerahan: r.date,
+        Nama_Mitra_Guide: r.partnerName,
+        No_HP_Mitra: r.partnerPhone || '-',
+        Nominal_Komisi_Diserahkan_Rp: r.rewardAmount || 0,
+        Catatan_Penyerahan: r.notes || '-'
+      }));
+    } else if (adminCategory === 'referrals') {
+      filePrefix = 'transaksi_rekomendasi';
+      dataToExport = filteredReferralsAdmin.map(t => ({
+        Tanggal_Transaksi: t.date,
+        Nama_Mitra_Guide: t.partnerName,
+        Nama_Konsumen: t.customerName || '-',
+        Total_Transaksi_Rp: t.amount || 0,
+        Komisi_Fee_Rp: typeof t.commissionAmount === 'number' ? t.commissionAmount : ((t.pointsEarned || 0) * 10000),
+        Catatan: t.notes || '-'
+      }));
+    }
 
     const csv = Papa.unparse(dataToExport);
     const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
     const link = document.createElement('a');
     const url = URL.createObjectURL(blob);
     link.setAttribute('href', url);
-    
-    const filePrefix = adminCategory === 'followups' ? 'followup_awal' : adminCategory === 'progress' ? 'progress_followup' : 'data_voucher';
     link.setAttribute('download', `${filePrefix}_export_${new Date().toISOString().split('T')[0]}.csv`);
     link.style.visibility = 'hidden';
     document.body.appendChild(link);
@@ -1307,10 +1384,9 @@ export default function App() {
     const map: Record<string, {
       totalTxAmount: number;
       txCount: number;
-      totalPointsEarned: number;
-      totalPointsRedeemed: number;
-      activePoints: number;
-      totalRewardReceived: number;
+      totalCommissionEarned: number;
+      totalCommissionPaid: number;
+      remainingCommission: number;
     }> = {};
 
     referralPartners.forEach(p => {
@@ -1318,10 +1394,9 @@ export default function App() {
         map[p.id] = {
           totalTxAmount: 0,
           txCount: 0,
-          totalPointsEarned: 0,
-          totalPointsRedeemed: 0,
-          activePoints: 0,
-          totalRewardReceived: 0,
+          totalCommissionEarned: 0,
+          totalCommissionPaid: 0,
+          remainingCommission: 0,
         };
       }
     });
@@ -1330,19 +1405,25 @@ export default function App() {
       if (map[t.partnerId]) {
         map[t.partnerId].totalTxAmount += (Number(t.amount) || 0);
         map[t.partnerId].txCount += 1;
-        map[t.partnerId].totalPointsEarned += (Number(t.pointsEarned) || 0);
+        
+        let commVal = 0;
+        if (typeof t.commissionAmount === 'number' && !isNaN(t.commissionAmount)) {
+          commVal = t.commissionAmount;
+        } else if (typeof t.pointsEarned === 'number' && t.pointsEarned > 0) {
+          commVal = t.pointsEarned * 10000;
+        }
+        map[t.partnerId].totalCommissionEarned += Number(commVal) || 0;
       }
     });
 
     referralRedemptions.forEach(r => {
       if (map[r.partnerId]) {
-        map[r.partnerId].totalPointsRedeemed += (Number(r.pointsRedeemed) || 0);
-        map[r.partnerId].totalRewardReceived += (Number(r.rewardAmount) || 0);
+        map[r.partnerId].totalCommissionPaid += (Number(r.rewardAmount) || 0);
       }
     });
 
     Object.keys(map).forEach(pId => {
-      map[pId].activePoints = map[pId].totalPointsEarned - map[pId].totalPointsRedeemed;
+      map[pId].remainingCommission = map[pId].totalCommissionEarned - map[pId].totalCommissionPaid;
     });
 
     return map;
@@ -1456,7 +1537,7 @@ export default function App() {
 
     try {
       const amountNum = Number(transAmount);
-      const pointsEarned = Math.floor(amountNum / 10000);
+      const commissionNum = Number(transCommission) || 0;
 
       await addDoc(collection(db, 'referral_transactions'), {
         partnerId: targetPartner.id,
@@ -1465,15 +1546,17 @@ export default function App() {
         date: transDate,
         customerName: transCustomerName.trim(),
         amount: amountNum,
-        pointsEarned: pointsEarned,
+        commissionAmount: commissionNum,
+        pointsEarned: 0,
         notes: transNotes.trim(),
         createdAt: serverTimestamp()
       });
 
-      setSuccessMsg(`Transaksi Rp ${amountNum.toLocaleString('id-ID')} (${pointsEarned} Poin) berhasil dicatat untuk ${targetPartner.name}!`);
+      setSuccessMsg(`Transaksi Rp ${amountNum.toLocaleString('id-ID')} (Komisi Rp ${commissionNum.toLocaleString('id-ID')}) berhasil dicatat untuk ${targetPartner.name}!`);
 
       setTransCustomerName('');
       setTransAmount('');
+      setTransCommission('');
       setTransNotes('');
       setTransPartnerId('');
       setTransPartnerInput('');
@@ -1503,17 +1586,10 @@ export default function App() {
       return;
     }
 
-    const pointsToRedeem = Number(redeemPointsInput);
     const rewardVal = Number(redeemRewardInput);
 
-    if (!pointsToRedeem || pointsToRedeem <= 0) {
-      setErrorMsg('Jumlah poin yang ditukar harus lebih dari 0.');
-      return;
-    }
-
-    const currentStats = partnerStatsMap[partner.id!] || { activePoints: 0 };
-    if (pointsToRedeem > currentStats.activePoints) {
-      setErrorMsg(`Poin tidak mencukupi! Sisa poin aktif ${partner.name} hanya ${currentStats.activePoints} Poin.`);
+    if (!rewardVal || rewardVal <= 0) {
+      setErrorMsg('Nominal komisi yang diserahkan harus lebih dari Rp 0.');
       return;
     }
 
@@ -1527,32 +1603,31 @@ export default function App() {
         partnerName: partner.name,
         partnerPhone: partner.phone,
         date: redeemDate,
-        pointsRedeemed: pointsToRedeem,
-        rewardAmount: rewardVal || 0,
+        rewardAmount: rewardVal,
+        pointsRedeemed: 0,
         notes: redeemNotesInput.trim(),
         createdAt: serverTimestamp()
       });
 
-      setSuccessMsg(`Penukaran ${pointsToRedeem} Poin (${rewardVal > 0 ? 'Rp ' + rewardVal.toLocaleString('id-ID') : 'Reward'}) untuk ${partner.name} berhasil dicatat!`);
+      setSuccessMsg(`Penyerahan komisi Rp ${rewardVal.toLocaleString('id-ID')} untuk ${partner.name} berhasil dicatat!`);
 
-      setRedeemPointsInput('');
       setRedeemRewardInput('');
       setRedeemNotesInput('');
       setShowRedeemModal(false);
     } catch (err: any) {
-      setErrorMsg(err.message || 'Gagal menyimpan klaim poin.');
+      setErrorMsg(err.message || 'Gagal menyimpan penyerahan komisi.');
     } finally {
       setIsSavingRedemption(false);
     }
   };
 
   const handleDeleteRedemption = async (redemptionId: string) => {
-    if (!confirm('Hapus riwayat penukaran poin ini? Poin akan dikembalikan ke sisa saldo mitra.')) return;
+    if (!confirm('Hapus riwayat penyerahan komisi ini?')) return;
     try {
       await deleteDoc(doc(db, 'referral_redemptions', redemptionId));
-      setSuccessMsg('Penukaran poin berhasil dibatalkan/dihapus.');
+      setSuccessMsg('Penyerahan komisi berhasil dibatalkan/dihapus.');
     } catch (err: any) {
-      setErrorMsg('Gagal menghapus data penukaran poin.');
+      setErrorMsg('Gagal menghapus data penyerahan komisi.');
     }
   };
 
@@ -1561,10 +1636,9 @@ export default function App() {
       const stats = partnerStatsMap[p.id!] || {
         totalTxAmount: 0,
         txCount: 0,
-        totalPointsEarned: 0,
-        totalPointsRedeemed: 0,
-        activePoints: 0,
-        totalRewardReceived: 0
+        totalCommissionEarned: 0,
+        totalCommissionPaid: 0,
+        remainingCommission: 0
       };
       return {
         ID_Mitra: p.id || '-',
@@ -1574,10 +1648,9 @@ export default function App() {
         Catatan: p.notes || '-',
         Jumlah_Transaksi_Laundry: stats.txCount,
         Total_Nilai_Transaksi_Rp: stats.totalTxAmount,
-        Total_Poin_Diperoleh: stats.totalPointsEarned,
-        Total_Poin_Ditukar: stats.totalPointsRedeemed,
-        Sisa_Poin_Aktif: stats.activePoints,
-        Total_Komisi_Reward_Diambil_Rp: stats.totalRewardReceived
+        Total_Komisi_Terkumpul_Rp: stats.totalCommissionEarned,
+        Total_Komisi_Diserahkan_Rp: stats.totalCommissionPaid,
+        Sisa_Komisi_Unpaid_Rp: stats.remainingCommission
       };
     });
 
@@ -1600,7 +1673,7 @@ export default function App() {
       No_HP_Pemberi_Rekomendasi: t.partnerPhone,
       Nama_Konsumen_Tamu: t.customerName,
       Nilai_Transaksi_Rp: t.amount,
-      Poin_Diperoleh: t.pointsEarned,
+      Komisi_Fee_Rp: typeof t.commissionAmount === 'number' ? t.commissionAmount : ((t.pointsEarned || 0) * 10000),
       Catatan: t.notes || '-'
     }));
 
@@ -1618,11 +1691,10 @@ export default function App() {
   const exportReferralRedemptionsCSV = () => {
     const data = referralRedemptions.map(r => ({
       ID_Redeem: r.id || '-',
-      Tanggal_Penukaran: r.date,
+      Tanggal_Penyerahan: r.date,
       Nama_Pemberi_Rekomendasi: r.partnerName,
       No_HP_Pemberi_Rekomendasi: r.partnerPhone,
-      Poin_Ditukar: r.pointsRedeemed,
-      Nominal_Reward_Rp: r.rewardAmount,
+      Nominal_Komisi_Diserahkan_Rp: r.rewardAmount,
       Catatan_Bukti: r.notes || '-'
     }));
 
@@ -3275,9 +3347,9 @@ export default function App() {
                 <div>
                   <div className="flex items-center gap-2 mb-1">
                     <Award className="w-6 h-6 text-amber-500" />
-                    <h2 className="font-serif text-2xl text-natural-text-dark font-bold">Tracking Rekomendasi & Poin Guide</h2>
+                    <h2 className="font-serif text-2xl text-natural-text-dark font-bold">Tracking Rekomendasi & Komisi Guide</h2>
                   </div>
-                  <p className="text-xs text-natural-text-muted">Pencatatan referral guide/sopir, sistem poin transaksi, dan histori klaim reward.</p>
+                  <p className="text-xs text-natural-text-muted">Pencatatan referral guide/sopir, input manual nominal komisi (Rp), dan histori penyerahan komisi.</p>
                 </div>
 
                 <div className="flex flex-wrap items-center gap-2">
@@ -3299,15 +3371,14 @@ export default function App() {
                   <button
                     onClick={() => {
                       setRedeemPartnerId('');
-                      setRedeemPointsInput('');
                       setRedeemRewardInput('');
                       setRedeemNotesInput('');
                       setShowRedeemModal(true);
                     }}
-                    className="px-4 py-2 bg-emerald-60 text-emerald-800 bg-emerald-50 hover:bg-emerald-100 font-bold text-xs rounded-xl flex items-center gap-2 border border-emerald-200/60 transition-colors shadow-xs"
+                    className="px-4 py-2 bg-emerald-50 hover:bg-emerald-100 text-emerald-800 font-bold text-xs rounded-xl flex items-center gap-2 border border-emerald-200/60 transition-colors shadow-xs"
                   >
-                    <Coins className="w-4 h-4 text-emerald-600" />
-                    Tukar / Redeem Poin
+                    <Wallet className="w-4 h-4 text-emerald-600" />
+                    Serahkan Komisi / Fee
                   </button>
 
                   <div className="relative group">
@@ -3335,7 +3406,7 @@ export default function App() {
                         className="w-full text-left px-4 py-2 text-xs font-semibold text-gray-700 hover:bg-gray-50 flex items-center gap-2"
                       >
                         <FileSpreadsheet className="w-3.5 h-3.5 text-emerald-600" />
-                        Export Histori Redeem Poin (CSV)
+                        Export Histori Penyerahan Komisi (CSV)
                       </button>
                     </div>
                   </div>
@@ -3372,9 +3443,9 @@ export default function App() {
                     <Coins className="w-6 h-6" />
                   </div>
                   <div>
-                    <p className="text-[10px] font-black uppercase tracking-wider text-natural-text-muted">Sisa Poin Aktif Total</p>
-                    <p className="text-2xl font-serif font-black text-amber-600">
-                      {Object.values(partnerStatsMap).reduce((acc: number, curr: any) => acc + (curr.activePoints || 0), 0)} <span className="text-xs font-sans font-bold text-amber-700">Poin</span>
+                    <p className="text-[10px] font-black uppercase tracking-wider text-natural-text-muted">Total Komisi Terkumpul</p>
+                    <p className="text-xl font-serif font-black text-amber-600">
+                      Rp {Object.values(partnerStatsMap).reduce((acc: number, curr: any) => acc + (curr.totalCommissionEarned || 0), 0).toLocaleString('id-ID')}
                     </p>
                   </div>
                 </div>
@@ -3384,11 +3455,11 @@ export default function App() {
                     <Wallet className="w-6 h-6" />
                   </div>
                   <div>
-                    <p className="text-[10px] font-black uppercase tracking-wider text-natural-text-muted">Total Reward Dikeluarkan</p>
+                    <p className="text-[10px] font-black uppercase tracking-wider text-natural-text-muted">Total Komisi Diserahkan</p>
                     <p className="text-xl font-serif font-black text-emerald-700">
                       Rp {referralRedemptions.reduce((acc, curr) => acc + (Number(curr.rewardAmount) || 0), 0).toLocaleString('id-ID')}
                     </p>
-                    <p className="text-[10px] text-gray-500">{referralRedemptions.length} penukaran</p>
+                    <p className="text-[10px] text-gray-500">{referralRedemptions.length} kali penyerahan</p>
                   </div>
                 </div>
               </div>
@@ -3427,8 +3498,8 @@ export default function App() {
                       : 'bg-white text-natural-text-muted hover:text-natural-text-dark border border-gray-200'
                   }`}
                 >
-                  <Coins className="w-4 h-4" />
-                  Histori Redeem Poin ({referralRedemptions.length})
+                  <Wallet className="w-4 h-4" />
+                  Histori Penyerahan Komisi ({referralRedemptions.length})
                 </button>
               </div>
 
@@ -3442,7 +3513,7 @@ export default function App() {
                         <Coins className="w-5 h-5 text-amber-500" />
                         Input Transaksi Rekomendasi
                       </h3>
-                      <p className="text-xs text-natural-text-muted mt-0.5">Catat transaksi laundry dari konsumen yang direkomendasikan mitra.</p>
+                      <p className="text-xs text-natural-text-muted mt-0.5">Catat transaksi laundry & komisi rupiah manual untuk pemberi rekomendasi.</p>
                     </div>
 
                     <form onSubmit={handleSaveReferralTransaction} className="space-y-4">
@@ -3517,7 +3588,7 @@ export default function App() {
                                     <p className="text-[10px] text-natural-text-muted">{p.phone} • {p.role}</p>
                                   </div>
                                   <span className="text-[10px] font-bold bg-amber-100 text-amber-800 px-2 py-0.5 rounded-full">
-                                    {partnerStatsMap[p.id!]?.activePoints || 0} Poin
+                                    Sisa Komisi: Rp {(partnerStatsMap[p.id!]?.remainingCommission || 0).toLocaleString('id-ID')}
                                   </span>
                                 </div>
                               ))}
@@ -3556,9 +3627,9 @@ export default function App() {
                               </div>
                             </div>
                             <div className="text-right">
-                              <p className="text-[10px] text-natural-text-muted uppercase font-bold">Poin Aktif</p>
+                              <p className="text-[10px] text-natural-text-muted uppercase font-bold">Sisa Komisi (Unpaid)</p>
                               <p className="text-sm font-black text-amber-700">
-                                {partnerStatsMap[activeMatchedPartner.id!]?.activePoints || 0} Poin
+                                Rp {(partnerStatsMap[activeMatchedPartner.id!]?.remainingCommission || 0).toLocaleString('id-ID')}
                               </p>
                             </div>
                           </div>
@@ -3590,9 +3661,9 @@ export default function App() {
                         />
                       </div>
 
-                      {/* Nilai Transaksi */}
+                      {/* Nilai Transaksi Konsumen */}
                       <div className="space-y-1">
-                        <label className="text-xs font-black text-natural-text-muted uppercase tracking-wider">Nilai Transaksi (Rp) *</label>
+                        <label className="text-xs font-black text-natural-text-muted uppercase tracking-wider">Nilai Transaksi Konsumen (Rp) *</label>
                         <input
                           type="number"
                           required
@@ -3602,12 +3673,25 @@ export default function App() {
                           onChange={(e) => setTransAmount(e.target.value)}
                           className="w-full px-4 py-2.5 bg-gray-50 border border-natural-border rounded-xl focus:outline-none focus:ring-1 focus:ring-natural-primary text-sm"
                         />
-                        {transAmount && Number(transAmount) > 0 && (
-                          <p className="text-[11px] text-emerald-700 font-bold flex items-center gap-1 mt-1">
-                            <Sparkles className="w-3.5 h-3.5" />
-                            Poin Diperoleh: +{Math.floor(Number(transAmount) / 10000)} Poin (Setiap Rp 10.000 = 1 Poin)
-                          </p>
-                        )}
+                      </div>
+
+                      {/* Nominal Komisi / Fee yang Diberikan (Input Manual) */}
+                      <div className="space-y-1">
+                        <label className="text-xs font-black text-natural-text-muted uppercase tracking-wider text-amber-800">
+                          Komisi / Fee Untuk Guide (Rp) *
+                        </label>
+                        <input
+                          type="number"
+                          required
+                          min="0"
+                          placeholder="Contoh: 25000 (Input Bebas / Fleksibel)"
+                          value={transCommission}
+                          onChange={(e) => setTransCommission(e.target.value)}
+                          className="w-full px-4 py-2.5 bg-amber-50/60 border border-amber-300 rounded-xl focus:outline-none focus:ring-1 focus:ring-amber-500 text-sm font-bold text-amber-900"
+                        />
+                        <p className="text-[10px] text-gray-500 italic mt-0.5">
+                          💡 Staff Dina dapat mengisi nominal komisi secara bebas & fleksibel dalam Rupiah.
+                        </p>
                       </div>
 
                       {/* Catatan / Nota */}
@@ -3676,52 +3760,53 @@ export default function App() {
                               (t.notes && t.notes.toLowerCase().includes(queryStr))
                             );
                           })
-                          .map(t => (
-                            <div
-                              key={`ref-tx-${t.id}`}
-                              className="p-4 bg-gray-50/70 hover:bg-gray-50 border border-gray-200/80 rounded-xl transition-all flex flex-col sm:flex-row justify-between items-start sm:items-center gap-3"
-                            >
-                              <div className="space-y-1">
-                                <div className="flex items-center gap-2 flex-wrap">
-                                  <span className="text-[10px] font-bold text-gray-500 bg-white px-2 py-0.5 rounded border">
-                                    {t.date}
-                                  </span>
-                                  <span className="text-xs font-bold text-amber-800 bg-amber-100 px-2.5 py-0.5 rounded-full flex items-center gap-1">
-                                    <User className="w-3 h-3" />
-                                    {t.partnerName} ({t.partnerPhone})
-                                  </span>
+                          .map(t => {
+                            const comm = typeof t.commissionAmount === 'number' ? t.commissionAmount : ((t.pointsEarned || 0) * 10000);
+                            return (
+                              <div
+                                key={`ref-tx-${t.id}`}
+                                className="p-4 bg-gray-50/70 hover:bg-gray-50 border border-gray-200/80 rounded-xl transition-all flex flex-col sm:flex-row justify-between items-start sm:items-center gap-3"
+                              >
+                                <div className="space-y-1">
+                                  <div className="flex items-center gap-2 flex-wrap">
+                                    <span className="text-[10px] font-bold text-gray-500 bg-white px-2 py-0.5 rounded border">
+                                      {t.date}
+                                    </span>
+                                    <span className="text-xs font-bold text-amber-800 bg-amber-100 px-2.5 py-0.5 rounded-full flex items-center gap-1">
+                                      <User className="w-3 h-3" />
+                                      {t.partnerName} ({t.partnerPhone})
+                                    </span>
+                                  </div>
+
+                                  <p className="text-sm font-bold text-natural-text-dark">
+                                    Konsumen: <span className="font-semibold text-natural-primary">{t.customerName}</span>
+                                  </p>
+                                  {t.notes && (
+                                    <p className="text-xs text-natural-text-muted italic">
+                                      📝 {t.notes}
+                                    </p>
+                                  )}
                                 </div>
 
-                                <p className="text-sm font-bold text-natural-text-dark">
-                                  Konsumen: <span className="font-semibold text-natural-primary">{t.customerName}</span>
-                                </p>
-                                {t.notes && (
-                                  <p className="text-xs text-natural-text-muted italic">
-                                    📝 {t.notes}
-                                  </p>
-                                )}
-                              </div>
+                                <div className="flex items-center justify-between sm:justify-end w-full sm:w-auto gap-4 pt-2 sm:pt-0 border-t sm:border-0 border-gray-200">
+                                  <div className="text-left sm:text-right">
+                                    <p className="text-xs text-natural-text-muted">Total Tx: <span className="font-bold text-natural-text-dark">Rp {Number(t.amount).toLocaleString('id-ID')}</span></p>
+                                    <span className="text-xs font-bold text-emerald-800 bg-emerald-100 px-2.5 py-0.5 rounded-md inline-block mt-0.5">
+                                      Komisi: Rp {Number(comm).toLocaleString('id-ID')}
+                                    </span>
+                                  </div>
 
-                              <div className="flex items-center justify-between sm:justify-end w-full sm:w-auto gap-4 pt-2 sm:pt-0 border-t sm:border-0 border-gray-200">
-                                <div className="text-left sm:text-right">
-                                  <p className="text-sm font-serif font-black text-natural-text-dark">
-                                    Rp {Number(t.amount).toLocaleString('id-ID')}
-                                  </p>
-                                  <span className="text-xs font-bold text-emerald-700 bg-emerald-100 px-2 py-0.5 rounded-md inline-block">
-                                    +{t.pointsEarned} Poin
-                                  </span>
+                                  <button
+                                    onClick={() => handleDeleteReferralTransaction(t.id!)}
+                                    className="p-2 text-red-500 hover:bg-red-50 rounded-lg transition-colors"
+                                    title="Hapus Transaksi"
+                                  >
+                                    <Trash2 className="w-4 h-4" />
+                                  </button>
                                 </div>
-
-                                <button
-                                  onClick={() => handleDeleteReferralTransaction(t.id!)}
-                                  className="p-2 text-red-500 hover:bg-red-50 rounded-lg transition-colors"
-                                  title="Hapus Transaksi"
-                                >
-                                  <Trash2 className="w-4 h-4" />
-                                </button>
                               </div>
-                            </div>
-                          ))
+                            );
+                          })
                       )}
                     </div>
                   </div>
@@ -3787,10 +3872,9 @@ export default function App() {
                           const stats = partnerStatsMap[p.id!] || {
                             totalTxAmount: 0,
                             txCount: 0,
-                            totalPointsEarned: 0,
-                            totalPointsRedeemed: 0,
-                            activePoints: 0,
-                            totalRewardReceived: 0
+                            totalCommissionEarned: 0,
+                            totalCommissionPaid: 0,
+                            remainingCommission: 0
                           };
 
                           return (
@@ -3847,11 +3931,11 @@ export default function App() {
                                 </div>
 
                                 <div className="bg-amber-50/80 p-2.5 rounded-xl border border-amber-100">
-                                  <p className="text-[10px] text-amber-800 font-bold uppercase">Sisa Poin Aktif</p>
-                                  <p className="font-serif font-black text-amber-700 text-base">
-                                    {stats.activePoints} Poin
+                                  <p className="text-[10px] text-amber-800 font-bold uppercase">Sisa Komisi Unpaid</p>
+                                  <p className="font-serif font-black text-amber-700 text-sm">
+                                    Rp {stats.remainingCommission.toLocaleString('id-ID')}
                                   </p>
-                                  <p className="text-[9px] text-amber-600">Total dapat: {stats.totalPointsEarned} Poin</p>
+                                  <p className="text-[9px] text-amber-600">Total komisi: Rp {stats.totalCommissionEarned.toLocaleString('id-ID')}</p>
                                 </div>
                               </div>
 
@@ -3872,20 +3956,14 @@ export default function App() {
                                 <button
                                   onClick={() => {
                                     setRedeemPartnerId(p.id!);
-                                    setRedeemPointsInput('');
                                     setRedeemRewardInput('');
                                     setRedeemNotesInput('');
                                     setShowRedeemModal(true);
                                   }}
-                                  disabled={stats.activePoints <= 0}
-                                  className={`px-3 py-2 font-bold text-xs rounded-xl transition-colors flex items-center gap-1 ${
-                                    stats.activePoints > 0
-                                      ? 'bg-emerald-600 hover:bg-emerald-700 text-white'
-                                      : 'bg-gray-100 text-gray-400 cursor-not-allowed'
-                                  }`}
+                                  className="px-3 py-2 font-bold text-xs rounded-xl transition-colors flex items-center gap-1 bg-emerald-600 hover:bg-emerald-700 text-white"
                                 >
-                                  <Coins className="w-3.5 h-3.5" />
-                                  Redeem Poin
+                                  <Wallet className="w-3.5 h-3.5" />
+                                  Serahkan Komisi
                                 </button>
                               </div>
                             </div>
@@ -3896,37 +3974,46 @@ export default function App() {
                 </div>
               )}
 
-              {/* SUB-TAB 3: HISTORI REDEEM POIN */}
+              {/* SUB-TAB 3: HISTORI PENYERAHAN KOMISI */}
               {referralSubTab === 'redeem' && (
                 <div className="bg-white p-6 rounded-2xl border border-natural-border shadow-sm space-y-5">
                   <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 border-b border-gray-100 pb-4">
                     <div>
                       <h3 className="font-serif text-xl font-bold text-natural-text-dark flex items-center gap-2">
-                        <Coins className="w-5 h-5 text-emerald-600" />
-                        Histori Klaim & Penukaran Poin Reward
+                        <Wallet className="w-5 h-5 text-emerald-600" />
+                        Histori Penyerahan & Pencairan Komisi Guide
                       </h3>
-                      <p className="text-xs text-natural-text-muted">Catatan penyerahan komisi / reward tunai kepada mitra pemberi rekomendasi.</p>
+                      <p className="text-xs text-natural-text-muted">Catatan pembayaran/pencairan komisi tunai kepada mitra pemberi rekomendasi.</p>
                     </div>
 
-                    <button
-                      onClick={() => {
-                        setRedeemPartnerId('');
-                        setRedeemPointsInput('');
-                        setRedeemRewardInput('');
-                        setRedeemNotesInput('');
-                        setShowRedeemModal(true);
-                      }}
-                      className="px-4 py-2.5 bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-xs rounded-xl flex items-center gap-2 shadow-sm transition-colors"
-                    >
-                      <Plus className="w-4 h-4" />
-                      + Catat Penukaran Poin Baru
-                    </button>
+                    <div className="flex items-center gap-2">
+                      <button
+                        onClick={exportReferralRedemptionsCSV}
+                        className="px-3.5 py-2.5 bg-gray-100 hover:bg-gray-200 text-natural-text-dark font-bold text-xs rounded-xl flex items-center gap-1.5 transition-colors border border-gray-200"
+                      >
+                        <Download className="w-4 h-4" />
+                        Export CSV
+                      </button>
+
+                      <button
+                        onClick={() => {
+                          setRedeemPartnerId('');
+                          setRedeemRewardInput('');
+                          setRedeemNotesInput('');
+                          setShowRedeemModal(true);
+                        }}
+                        className="px-4 py-2.5 bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-xs rounded-xl flex items-center gap-2 shadow-sm transition-colors"
+                      >
+                        <Plus className="w-4 h-4" />
+                        + Catat Penyerahan Komisi Baru
+                      </button>
+                    </div>
                   </div>
 
                   <div className="space-y-3">
                     {referralRedemptions.length === 0 ? (
                       <div className="p-16 text-center text-natural-text-muted text-xs italic">
-                        Belum ada riwayat penukaran poin.
+                        Belum ada riwayat penyerahan komisi.
                       </div>
                     ) : (
                       referralRedemptions.map(r => (
@@ -3945,7 +4032,7 @@ export default function App() {
                             </div>
 
                             <p className="text-sm font-bold text-natural-text-dark">
-                              Nominal Reward: <span className="text-emerald-700 font-serif font-black text-base">Rp {Number(r.rewardAmount || 0).toLocaleString('id-ID')}</span>
+                              Nominal Komisi Diserahkan: <span className="text-emerald-700 font-serif font-black text-base">Rp {Number(r.rewardAmount || 0).toLocaleString('id-ID')}</span>
                             </p>
                             {r.notes && (
                               <p className="text-xs text-natural-text-muted italic">
@@ -3955,16 +4042,10 @@ export default function App() {
                           </div>
 
                           <div className="flex items-center justify-between sm:justify-end w-full sm:w-auto gap-4">
-                            <div className="text-left sm:text-right">
-                              <p className="text-xs font-bold text-red-600 bg-red-50 border border-red-100 px-3 py-1 rounded-xl">
-                                -{r.pointsRedeemed} Poin
-                              </p>
-                            </div>
-
                             <button
                               onClick={() => handleDeleteRedemption(r.id!)}
                               className="p-2 text-red-500 hover:bg-red-100 rounded-lg transition-colors"
-                              title="Batalkan / Hapus Redeem"
+                              title="Batalkan / Hapus Pencatatan Komisi"
                             >
                               <Trash2 className="w-4 h-4" />
                             </button>
@@ -4083,14 +4164,14 @@ export default function App() {
                 </div>
               )}
 
-              {/* MODAL: REDEEM POIN REWARD */}
+              {/* MODAL: PENYERAHAN / PENCAIRAN KOMISI */}
               {showRedeemModal && (
                 <div className="fixed inset-0 bg-black/50 backdrop-blur-xs flex items-center justify-center p-4 z-50 animate-fade-in">
                   <div className="bg-white rounded-2xl max-w-md w-full p-6 space-y-5 border border-natural-border shadow-xl">
                     <div className="flex justify-between items-center border-b border-gray-100 pb-3">
                       <h3 className="font-serif font-bold text-lg text-natural-text-dark flex items-center gap-2">
-                        <Coins className="w-5 h-5 text-emerald-600" />
-                        Penukaran / Redeem Poin Reward
+                        <Wallet className="w-5 h-5 text-emerald-600" />
+                        Pencatatan Penyerahan Komisi Guide
                       </h3>
                       <button
                         onClick={() => setShowRedeemModal(false)}
@@ -4110,43 +4191,42 @@ export default function App() {
                           onChange={(e) => {
                             setRedeemPartnerId(e.target.value);
                             const pStats = partnerStatsMap[e.target.value];
-                            if (pStats && pStats.activePoints > 0) {
-                              setRedeemPointsInput(pStats.activePoints.toString());
-                              setRedeemRewardInput((pStats.activePoints * 1000).toString()); // Default example estimate Rp 1.000 per point
+                            if (pStats && pStats.remainingCommission > 0) {
+                              setRedeemRewardInput(pStats.remainingCommission.toString());
                             }
                           }}
                           className="w-full px-4 py-2.5 bg-gray-50 border border-natural-border rounded-xl focus:outline-none focus:ring-1 focus:ring-natural-primary text-sm font-semibold"
                         >
                           <option value="">-- Pilih Mitra --</option>
                           {referralPartners.map(p => {
-                            const activePts = partnerStatsMap[p.id!]?.activePoints || 0;
+                            const remaining = partnerStatsMap[p.id!]?.remainingCommission || 0;
                             return (
                               <option key={`redeem-opt-${p.id}`} value={p.id}>
-                                {p.name} ({p.phone}) — Sisa: {activePts} Poin
+                                {p.name} ({p.phone}) — Sisa Komisi: Rp {remaining.toLocaleString('id-ID')}
                               </option>
                             );
                           })}
                         </select>
                       </div>
 
-                      {/* Live Points Info */}
+                      {/* Live Commission Info */}
                       {redeemPartnerId && partnerStatsMap[redeemPartnerId] && (
                         <div className="p-3 bg-emerald-50 border border-emerald-200 rounded-xl flex items-center justify-between text-xs">
                           <div>
-                            <p className="text-emerald-800 font-bold">Saldo Poin Aktif Saat Ini</p>
+                            <p className="text-emerald-800 font-bold">Sisa Komisi Belum Dibayarkan</p>
                             <p className="text-[10px] text-emerald-600">
-                              Dapat ditukarkan dengan komisi / voucher.
+                              Total komisi hak mitra yang belum diserahkan.
                             </p>
                           </div>
-                          <p className="text-lg font-serif font-black text-emerald-700">
-                            {partnerStatsMap[redeemPartnerId].activePoints} Poin
+                          <p className="text-base font-serif font-black text-emerald-700">
+                            Rp {partnerStatsMap[redeemPartnerId].remainingCommission.toLocaleString('id-ID')}
                           </p>
                         </div>
                       )}
 
-                      {/* Tanggal Redeem */}
+                      {/* Tanggal Penyerahan */}
                       <div className="space-y-1">
-                        <label className="text-xs font-black text-natural-text-muted uppercase tracking-wider">Tanggal Penukaran *</label>
+                        <label className="text-xs font-black text-natural-text-muted uppercase tracking-wider">Tanggal Penyerahan *</label>
                         <input
                           type="date"
                           required
@@ -4156,29 +4236,17 @@ export default function App() {
                         />
                       </div>
 
-                      {/* Jumlah Poin Ditukar */}
+                      {/* Nominal Komisi Diberikan (Rp) */}
                       <div className="space-y-1">
-                        <label className="text-xs font-black text-natural-text-muted uppercase tracking-wider">Jumlah Poin Yang Ditukar *</label>
+                        <label className="text-xs font-black text-natural-text-muted uppercase tracking-wider">Nominal Komisi Diserahkan (Rp) *</label>
                         <input
                           type="number"
                           required
                           min="1"
-                          placeholder="Contoh: 10"
-                          value={redeemPointsInput}
-                          onChange={(e) => setRedeemPointsInput(e.target.value)}
-                          className="w-full px-4 py-2.5 bg-gray-50 border border-natural-border rounded-xl focus:outline-none focus:ring-1 focus:ring-natural-primary text-sm font-bold"
-                        />
-                      </div>
-
-                      {/* Nominal Reward / Komisi (Rp) */}
-                      <div className="space-y-1">
-                        <label className="text-xs font-black text-natural-text-muted uppercase tracking-wider">Nominal Reward / Komisi Diberikan (Rp)</label>
-                        <input
-                          type="number"
-                          placeholder="Contoh: 100000"
+                          placeholder="Contoh: 50000"
                           value={redeemRewardInput}
                           onChange={(e) => setRedeemRewardInput(e.target.value)}
-                          className="w-full px-4 py-2.5 bg-gray-50 border border-natural-border rounded-xl focus:outline-none focus:ring-1 focus:ring-natural-primary text-sm font-bold"
+                          className="w-full px-4 py-2.5 bg-gray-50 border border-natural-border rounded-xl focus:outline-none focus:ring-1 focus:ring-natural-primary text-sm font-bold text-emerald-800"
                         />
                       </div>
 
@@ -4187,7 +4255,7 @@ export default function App() {
                         <label className="text-xs font-black text-natural-text-muted uppercase tracking-wider">Catatan / Keterangan Penyerahan</label>
                         <input
                           type="text"
-                          placeholder="Contoh: Tunai / Transfer BCA, diserahkan oleh Staff Dina"
+                          placeholder="Contoh: Diserahkan tunai oleh Staff Dina"
                           value={redeemNotesInput}
                           onChange={(e) => setRedeemNotesInput(e.target.value)}
                           className="w-full px-4 py-2.5 bg-gray-50 border border-natural-border rounded-xl focus:outline-none focus:ring-1 focus:ring-natural-primary text-sm"
@@ -4210,7 +4278,7 @@ export default function App() {
                           {isSavingRedemption ? (
                             <Loader2 className="w-4 h-4 animate-spin" />
                           ) : (
-                            'Proses Redeem Poin'
+                            'Simpan Penyerahan'
                           )}
                         </button>
                       </div>
@@ -4255,7 +4323,7 @@ export default function App() {
                   <header className="flex flex-col lg:flex-row lg:items-end justify-between gap-6 pb-6 border-b border-gray-100 mb-8">
                     <div className="space-y-1">
                       <h2 className="font-serif text-4xl text-natural-text-dark tracking-tight font-bold">Admin Tracking Center</h2>
-                      <div className="flex items-center gap-4 mt-4">
+                      <div className="flex flex-wrap items-center gap-2 mt-4">
                         <button 
                           onClick={() => setAdminCategory('followups')}
                           className={`px-4 py-2 rounded-full text-[10px] font-black uppercase tracking-widest border transition-all ${
@@ -4285,6 +4353,26 @@ export default function App() {
                           }`}
                         >
                           Data Voucher
+                        </button>
+                        <button 
+                          onClick={() => setAdminCategory('redeem_guide')}
+                          className={`px-4 py-2 rounded-full text-[10px] font-black uppercase tracking-widest border transition-all ${
+                            adminCategory === 'redeem_guide'
+                            ? 'bg-emerald-600 text-white border-emerald-600 shadow-lg shadow-emerald-600/20'
+                            : 'bg-white text-natural-text-muted border-natural-border hover:border-emerald-600'
+                          }`}
+                        >
+                          Redeem Tour Guide
+                        </button>
+                        <button 
+                          onClick={() => setAdminCategory('referrals')}
+                          className={`px-4 py-2 rounded-full text-[10px] font-black uppercase tracking-widest border transition-all ${
+                            adminCategory === 'referrals'
+                            ? 'bg-amber-600 text-white border-amber-600 shadow-lg shadow-amber-600/20'
+                            : 'bg-white text-natural-text-muted border-natural-border hover:border-amber-600'
+                          }`}
+                        >
+                          Transaksi Rekomendasi
                         </button>
                       </div>
                     </div>
@@ -4322,7 +4410,12 @@ export default function App() {
                         onClick={downloadCSV}
                         className="flex items-center gap-2 bg-natural-text-dark text-white px-6 py-4 rounded-2xl hover:opacity-90 transition-all font-black text-xs shadow-2xl"
                       >
-                        <Download className="w-4 h-4" /> Export {adminCategory === 'followups' ? 'Followups' : adminCategory === 'progress' ? 'Progress' : 'Vouchers'} (.CSV)
+                        <Download className="w-4 h-4" /> Export {
+                          adminCategory === 'followups' ? 'Followups' :
+                          adminCategory === 'progress' ? 'Progress' :
+                          adminCategory === 'vouchers' ? 'Vouchers' :
+                          adminCategory === 'redeem_guide' ? 'Redeem Guide' : 'Rekomendasi'
+                        } (.CSV)
                       </button>
                     </div>
                   </header>
@@ -4330,7 +4423,7 @@ export default function App() {
                   <div className="grid grid-cols-1 md:grid-cols-4 gap-4 card-natural p-5 shadow-sm">
                     <div className="relative">
                       <span className="absolute left-3 top-1/2 -translate-y-1/2 text-natural-text-muted"><Search className="w-4 h-4" /></span>
-                      <input type="text" placeholder="Cari PIC/Konsumen..." value={searchPic || ''} onChange={(e) => setSearchPic(e.target.value)} className="w-full pl-10 pr-3 py-3 bg-gray-50 border border-natural-border rounded-xl text-sm focus:outline-none focus:ring-1 focus:ring-natural-primary" />
+                      <input type="text" placeholder="Cari PIC/Konsumen/Mitra..." value={searchPic || ''} onChange={(e) => setSearchPic(e.target.value)} className="w-full pl-10 pr-3 py-3 bg-gray-50 border border-natural-border rounded-xl text-sm focus:outline-none focus:ring-1 focus:ring-natural-primary" />
                     </div>
                     <div className="relative">
                       <span className="absolute left-3 top-1/2 -translate-y-1/2 text-natural-text-muted"><Calendar className="w-4 h-4" /></span>
@@ -4341,7 +4434,15 @@ export default function App() {
                       <input type="text" placeholder="MM-YYYY (e.g. 04-2026)" value={filterMonth || ''} onChange={(e) => setFilterMonth(e.target.value)} className="w-full pl-10 pr-3 py-3 bg-gray-50 border border-natural-border rounded-xl text-sm focus:outline-none focus:ring-1 focus:ring-natural-primary" />
                     </div>
                     <div className="flex items-center justify-end">
-                      <span className="text-[10px] font-black text-natural-text-muted tracking-[0.2em] uppercase">Showing {adminCategory === 'followups' ? filteredFollowups.length : adminCategory === 'progress' ? filteredProgress.length : filteredVouchersAdmin.length} results</span>
+                      <span className="text-[10px] font-black text-natural-text-muted tracking-[0.2em] uppercase">
+                        Showing {
+                          adminCategory === 'followups' ? filteredFollowups.length :
+                          adminCategory === 'progress' ? filteredProgress.length :
+                          adminCategory === 'vouchers' ? filteredVouchersAdmin.length :
+                          adminCategory === 'redeem_guide' ? filteredRedemptionsAdmin.length :
+                          filteredReferralsAdmin.length
+                        } results
+                      </span>
                     </div>
                   </div>
 
@@ -4439,6 +4540,72 @@ export default function App() {
                                 </td>
                               </tr>
                             ))}
+                          </tbody>
+                        </table>
+                      ) : adminCategory === 'redeem_guide' ? (
+                        <table className="w-full text-left border-collapse">
+                          <thead className="bg-emerald-700 text-[10px] uppercase font-black text-white border-b border-emerald-800">
+                            <tr>
+                              <th className="px-6 py-5">Tanggal Redeem</th>
+                              <th className="px-6 py-5">Nama Mitra Guide</th>
+                              <th className="px-6 py-5">No HP</th>
+                              <th className="px-6 py-5">Poin Ditukar</th>
+                              <th className="px-6 py-5">Nominal Reward (Rp)</th>
+                              <th className="px-6 py-5">Catatan / Bukti</th>
+                            </tr>
+                          </thead>
+                          <tbody className="text-xs text-natural-text-dark divide-y divide-gray-50">
+                            {filteredRedemptionsAdmin.length === 0 ? (
+                              <tr>
+                                <td colSpan={6} className="px-6 py-8 text-center text-natural-text-muted italic">
+                                  Tidak ada data penukaran poin tour guide yang ditemukan.
+                                </td>
+                              </tr>
+                            ) : (
+                              filteredRedemptionsAdmin.map((r, idx) => (
+                                <tr key={`admin-r-${r.id || idx}`} className="hover:bg-natural-bg/30 transition-colors">
+                                  <td className="px-6 py-4 font-semibold">{r.date}</td>
+                                  <td className="px-6 py-4 font-bold text-natural-text-dark">{r.partnerName}</td>
+                                  <td className="px-6 py-4 font-mono text-natural-text-muted">{r.partnerPhone || '-'}</td>
+                                  <td className="px-6 py-4 font-bold text-amber-600">{r.pointsRedeemed} Poin</td>
+                                  <td className="px-6 py-4 font-serif font-black text-emerald-700">Rp {Number(r.rewardAmount || 0).toLocaleString('id-ID')}</td>
+                                  <td className="px-6 py-4 text-natural-text-muted italic">{r.notes || '-'}</td>
+                                </tr>
+                              ))
+                            )}
+                          </tbody>
+                        </table>
+                      ) : adminCategory === 'referrals' ? (
+                        <table className="w-full text-left border-collapse">
+                          <thead className="bg-amber-600 text-[10px] uppercase font-black text-white border-b border-amber-700">
+                            <tr>
+                              <th className="px-6 py-5">Tanggal</th>
+                              <th className="px-6 py-5">Mitra Guide</th>
+                              <th className="px-6 py-5">Konsumen</th>
+                              <th className="px-6 py-5">Total Transaksi</th>
+                              <th className="px-6 py-5">Poin Earned</th>
+                              <th className="px-6 py-5">Catatan</th>
+                            </tr>
+                          </thead>
+                          <tbody className="text-xs text-natural-text-dark divide-y divide-gray-50">
+                            {filteredReferralsAdmin.length === 0 ? (
+                              <tr>
+                                <td colSpan={6} className="px-6 py-8 text-center text-natural-text-muted italic">
+                                  Tidak ada data transaksi rekomendasi yang ditemukan.
+                                </td>
+                              </tr>
+                            ) : (
+                              filteredReferralsAdmin.map((t, idx) => (
+                                <tr key={`admin-ref-${t.id || idx}`} className="hover:bg-natural-bg/30 transition-colors">
+                                  <td className="px-6 py-4 font-semibold">{t.date}</td>
+                                  <td className="px-6 py-4 font-bold">{t.partnerName}</td>
+                                  <td className="px-6 py-4">{t.customerName || '-'}</td>
+                                  <td className="px-6 py-4 font-serif font-bold text-natural-text-dark">Rp {Number(t.amount || 0).toLocaleString('id-ID')}</td>
+                                  <td className="px-6 py-4 font-bold text-emerald-600">+{t.pointsEarned} Poin</td>
+                                  <td className="px-6 py-4 text-natural-text-muted italic">{t.notes || '-'}</td>
+                                </tr>
+                              ))
+                            )}
                           </tbody>
                         </table>
                       ) : (

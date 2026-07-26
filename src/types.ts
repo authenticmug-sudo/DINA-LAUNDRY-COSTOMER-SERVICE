@@ -100,7 +100,8 @@ export interface ReferralTransaction {
   date: string; // YYYY-MM-DD
   customerName: string;
   amount: number; // Transaction value in Rp
-  pointsEarned: number; // Calculated points
+  commissionAmount: number; // Manual commission/fee in Rp entered by Staff Dina
+  pointsEarned?: number; // Optional legacy field
   notes?: string;
   createdAt: any;
 }
@@ -111,8 +112,8 @@ export interface ReferralRedemption {
   partnerName: string;
   partnerPhone: string;
   date: string; // YYYY-MM-DD
-  pointsRedeemed: number;
-  rewardAmount: number; // Value in Rp
+  rewardAmount: number; // Disbursed commission/fee in Rp
+  pointsRedeemed?: number; // Optional legacy field
   notes?: string;
   createdAt: any;
 }
