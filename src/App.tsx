@@ -187,7 +187,6 @@ export default function App() {
   const [transDate, setTransDate] = useState(new Date().toISOString().split('T')[0]);
   const [transCustomerName, setTransCustomerName] = useState('');
   const [transAmount, setTransAmount] = useState('');
-  const [transCommission, setTransCommission] = useState('');
   const [transNotes, setTransNotes] = useState('');
   const [isSavingTrans, setIsSavingTrans] = useState(false);
   const [showQuickPartnerModal, setShowQuickPartnerModal] = useState(false);
@@ -195,6 +194,7 @@ export default function App() {
   // Form State: Commission Payout / Disbursement
   const [redeemPartnerId, setRedeemPartnerId] = useState('');
   const [redeemDate, setRedeemDate] = useState(new Date().toISOString().split('T')[0]);
+  const [deductedTxInput, setDeductedTxInput] = useState('');
   const [redeemRewardInput, setRedeemRewardInput] = useState('');
   const [redeemNotesInput, setRedeemNotesInput] = useState('');
   const [isSavingRedemption, setIsSavingRedemption] = useState(false);
@@ -1384,9 +1384,9 @@ export default function App() {
     const map: Record<string, {
       totalTxAmount: number;
       txCount: number;
-      totalCommissionEarned: number;
+      totalDeductedTxAmount: number;
+      remainingUnsettledTx: number;
       totalCommissionPaid: number;
-      remainingCommission: number;
     }> = {};
 
     referralPartners.forEach(p => {
@@ -1394,9 +1394,9 @@ export default function App() {
         map[p.id] = {
           totalTxAmount: 0,
           txCount: 0,
-          totalCommissionEarned: 0,
+          totalDeductedTxAmount: 0,
+          remainingUnsettledTx: 0,
           totalCommissionPaid: 0,
-          remainingCommission: 0,
         };
       }
     });
@@ -1405,25 +1405,18 @@ export default function App() {
       if (map[t.partnerId]) {
         map[t.partnerId].totalTxAmount += (Number(t.amount) || 0);
         map[t.partnerId].txCount += 1;
-        
-        let commVal = 0;
-        if (typeof t.commissionAmount === 'number' && !isNaN(t.commissionAmount)) {
-          commVal = t.commissionAmount;
-        } else if (typeof t.pointsEarned === 'number' && t.pointsEarned > 0) {
-          commVal = t.pointsEarned * 10000;
-        }
-        map[t.partnerId].totalCommissionEarned += Number(commVal) || 0;
       }
     });
 
     referralRedemptions.forEach(r => {
       if (map[r.partnerId]) {
+        map[r.partnerId].totalDeductedTxAmount += (Number(r.deductedTxAmount) || 0);
         map[r.partnerId].totalCommissionPaid += (Number(r.rewardAmount) || 0);
       }
     });
 
     Object.keys(map).forEach(pId => {
-      map[pId].remainingCommission = map[pId].totalCommissionEarned - map[pId].totalCommissionPaid;
+      map[pId].remainingUnsettledTx = Math.max(0, map[pId].totalTxAmount - map[pId].totalDeductedTxAmount);
     });
 
     return map;
@@ -1504,7 +1497,7 @@ export default function App() {
   };
 
   const handleDeletePartner = async (partnerId: string, name: string) => {
-    if (!confirm(`Hapus mitra "${name}" dari database? Data transaksi dan poin mitra ini akan tetap tersimpan.`)) return;
+    if (!confirm(`Hapus mitra "${name}" dari database? Data transaksi dan histori mitra ini akan tetap tersimpan.`)) return;
     try {
       await deleteDoc(doc(db, 'referral_partners', partnerId));
       setSuccessMsg(`Mitra ${name} telah dihapus.`);
@@ -1537,7 +1530,6 @@ export default function App() {
 
     try {
       const amountNum = Number(transAmount);
-      const commissionNum = Number(transCommission) || 0;
 
       await addDoc(collection(db, 'referral_transactions'), {
         partnerId: targetPartner.id,
@@ -1546,17 +1538,14 @@ export default function App() {
         date: transDate,
         customerName: transCustomerName.trim(),
         amount: amountNum,
-        commissionAmount: commissionNum,
-        pointsEarned: 0,
         notes: transNotes.trim(),
         createdAt: serverTimestamp()
       });
 
-      setSuccessMsg(`Transaksi Rp ${amountNum.toLocaleString('id-ID')} (Komisi Rp ${commissionNum.toLocaleString('id-ID')}) berhasil dicatat untuk ${targetPartner.name}!`);
+      setSuccessMsg(`Transaksi Rp ${amountNum.toLocaleString('id-ID')} berhasil dicatat untuk ${targetPartner.name}!`);
 
       setTransCustomerName('');
       setTransAmount('');
-      setTransCommission('');
       setTransNotes('');
       setTransPartnerId('');
       setTransPartnerInput('');
@@ -1586,10 +1575,16 @@ export default function App() {
       return;
     }
 
+    const deductedVal = Number(deductedTxInput);
     const rewardVal = Number(redeemRewardInput);
 
+    if (isNaN(deductedVal) || deductedVal < 0) {
+      setErrorMsg('Nilai pengurang akumulasi transaksi harus diisi dengan nominal Rupiah yang valid (minimal Rp 0).');
+      return;
+    }
+
     if (!rewardVal || rewardVal <= 0) {
-      setErrorMsg('Nominal komisi yang diserahkan harus lebih dari Rp 0.');
+      setErrorMsg('Nominal komisi / fee yang diserahkan harus lebih dari Rp 0.');
       return;
     }
 
@@ -1603,14 +1598,15 @@ export default function App() {
         partnerName: partner.name,
         partnerPhone: partner.phone,
         date: redeemDate,
+        deductedTxAmount: deductedVal,
         rewardAmount: rewardVal,
-        pointsRedeemed: 0,
         notes: redeemNotesInput.trim(),
         createdAt: serverTimestamp()
       });
 
-      setSuccessMsg(`Penyerahan komisi Rp ${rewardVal.toLocaleString('id-ID')} untuk ${partner.name} berhasil dicatat!`);
+      setSuccessMsg(`Penyerahan komisi Rp ${rewardVal.toLocaleString('id-ID')} (Pengurang Transaksi Rp ${deductedVal.toLocaleString('id-ID')}) untuk ${partner.name} berhasil dicatat!`);
 
+      setDeductedTxInput('');
       setRedeemRewardInput('');
       setRedeemNotesInput('');
       setShowRedeemModal(false);
@@ -1636,9 +1632,9 @@ export default function App() {
       const stats = partnerStatsMap[p.id!] || {
         totalTxAmount: 0,
         txCount: 0,
-        totalCommissionEarned: 0,
-        totalCommissionPaid: 0,
-        remainingCommission: 0
+        totalDeductedTxAmount: 0,
+        remainingUnsettledTx: 0,
+        totalCommissionPaid: 0
       };
       return {
         ID_Mitra: p.id || '-',
@@ -1647,10 +1643,10 @@ export default function App() {
         Pekerjaan_Role: p.role || '-',
         Catatan: p.notes || '-',
         Jumlah_Transaksi_Laundry: stats.txCount,
-        Total_Nilai_Transaksi_Rp: stats.totalTxAmount,
-        Total_Komisi_Terkumpul_Rp: stats.totalCommissionEarned,
-        Total_Komisi_Diserahkan_Rp: stats.totalCommissionPaid,
-        Sisa_Komisi_Unpaid_Rp: stats.remainingCommission
+        Total_Akumulasi_Transaksi_Rp: stats.totalTxAmount,
+        Akumulasi_Transaksi_Sudah_Diperhitungkan_Rp: stats.totalDeductedTxAmount,
+        Sisa_Akumulasi_Belum_Diperhitungkan_Rp: stats.remainingUnsettledTx,
+        Total_Komisi_Fee_Diserahkan_Rp: stats.totalCommissionPaid
       };
     });
 
@@ -1673,7 +1669,6 @@ export default function App() {
       No_HP_Pemberi_Rekomendasi: t.partnerPhone,
       Nama_Konsumen_Tamu: t.customerName,
       Nilai_Transaksi_Rp: t.amount,
-      Komisi_Fee_Rp: typeof t.commissionAmount === 'number' ? t.commissionAmount : ((t.pointsEarned || 0) * 10000),
       Catatan: t.notes || '-'
     }));
 
@@ -1694,7 +1689,8 @@ export default function App() {
       Tanggal_Penyerahan: r.date,
       Nama_Pemberi_Rekomendasi: r.partnerName,
       No_HP_Pemberi_Rekomendasi: r.partnerPhone,
-      Nominal_Komisi_Diserahkan_Rp: r.rewardAmount,
+      Pengurang_Akumulasi_Transaksi_Rp: r.deductedTxAmount || 0,
+      Nominal_Komisi_Fee_Diserahkan_Rp: r.rewardAmount || 0,
       Catatan_Bukti: r.notes || '-'
     }));
 
@@ -3443,10 +3439,11 @@ export default function App() {
                     <Coins className="w-6 h-6" />
                   </div>
                   <div>
-                    <p className="text-[10px] font-black uppercase tracking-wider text-natural-text-muted">Total Komisi Terkumpul</p>
+                    <p className="text-[10px] font-black uppercase tracking-wider text-natural-text-muted">Total Tx Belum Diperhitungkan</p>
                     <p className="text-xl font-serif font-black text-amber-600">
-                      Rp {Object.values(partnerStatsMap).reduce((acc: number, curr: any) => acc + (curr.totalCommissionEarned || 0), 0).toLocaleString('id-ID')}
+                      Rp {Object.values(partnerStatsMap).reduce((acc: number, curr: any) => acc + (curr.remainingUnsettledTx || 0), 0).toLocaleString('id-ID')}
                     </p>
+                    <p className="text-[10px] text-gray-500">Nilai transaksi belum diklaim fee</p>
                   </div>
                 </div>
 
@@ -3455,11 +3452,11 @@ export default function App() {
                     <Wallet className="w-6 h-6" />
                   </div>
                   <div>
-                    <p className="text-[10px] font-black uppercase tracking-wider text-natural-text-muted">Total Komisi Diserahkan</p>
+                    <p className="text-[10px] font-black uppercase tracking-wider text-natural-text-muted">Total Fee Diserahkan</p>
                     <p className="text-xl font-serif font-black text-emerald-700">
                       Rp {referralRedemptions.reduce((acc, curr) => acc + (Number(curr.rewardAmount) || 0), 0).toLocaleString('id-ID')}
                     </p>
-                    <p className="text-[10px] text-gray-500">{referralRedemptions.length} kali penyerahan</p>
+                    <p className="text-[10px] text-gray-500">{referralRedemptions.length} kali penyerahan fee</p>
                   </div>
                 </div>
               </div>
@@ -3513,7 +3510,7 @@ export default function App() {
                         <Coins className="w-5 h-5 text-amber-500" />
                         Input Transaksi Rekomendasi
                       </h3>
-                      <p className="text-xs text-natural-text-muted mt-0.5">Catat transaksi laundry & komisi rupiah manual untuk pemberi rekomendasi.</p>
+                      <p className="text-xs text-natural-text-muted mt-0.5">Catat nominal transaksi konsumen saja. Perhitungan komisi dilakukan pada menu Database Mitra.</p>
                     </div>
 
                     <form onSubmit={handleSaveReferralTransaction} className="space-y-4">
@@ -3588,7 +3585,7 @@ export default function App() {
                                     <p className="text-[10px] text-natural-text-muted">{p.phone} • {p.role}</p>
                                   </div>
                                   <span className="text-[10px] font-bold bg-amber-100 text-amber-800 px-2 py-0.5 rounded-full">
-                                    Sisa Komisi: Rp {(partnerStatsMap[p.id!]?.remainingCommission || 0).toLocaleString('id-ID')}
+                                    Sisa Tx Belum Diperhitungkan: Rp {(partnerStatsMap[p.id!]?.remainingUnsettledTx || 0).toLocaleString('id-ID')}
                                   </span>
                                 </div>
                               ))}
@@ -3627,9 +3624,9 @@ export default function App() {
                               </div>
                             </div>
                             <div className="text-right">
-                              <p className="text-[10px] text-natural-text-muted uppercase font-bold">Sisa Komisi (Unpaid)</p>
+                              <p className="text-[10px] text-natural-text-muted uppercase font-bold">Sisa Tx Belum Diperhitungkan</p>
                               <p className="text-sm font-black text-amber-700">
-                                Rp {(partnerStatsMap[activeMatchedPartner.id!]?.remainingCommission || 0).toLocaleString('id-ID')}
+                                Rp {(partnerStatsMap[activeMatchedPartner.id!]?.remainingUnsettledTx || 0).toLocaleString('id-ID')}
                               </p>
                             </div>
                           </div>
@@ -3663,7 +3660,7 @@ export default function App() {
 
                       {/* Nilai Transaksi Konsumen */}
                       <div className="space-y-1">
-                        <label className="text-xs font-black text-natural-text-muted uppercase tracking-wider">Nilai Transaksi Konsumen (Rp) *</label>
+                        <label className="text-xs font-black text-natural-text-muted uppercase tracking-wider">Nominal Transaksi Konsumen (Rp) *</label>
                         <input
                           type="number"
                           required
@@ -3671,27 +3668,8 @@ export default function App() {
                           placeholder="Contoh: 150000"
                           value={transAmount}
                           onChange={(e) => setTransAmount(e.target.value)}
-                          className="w-full px-4 py-2.5 bg-gray-50 border border-natural-border rounded-xl focus:outline-none focus:ring-1 focus:ring-natural-primary text-sm"
+                          className="w-full px-4 py-2.5 bg-gray-50 border border-natural-border rounded-xl focus:outline-none focus:ring-1 focus:ring-natural-primary text-sm font-bold text-natural-text-dark"
                         />
-                      </div>
-
-                      {/* Nominal Komisi / Fee yang Diberikan (Input Manual) */}
-                      <div className="space-y-1">
-                        <label className="text-xs font-black text-natural-text-muted uppercase tracking-wider text-amber-800">
-                          Komisi / Fee Untuk Guide (Rp) *
-                        </label>
-                        <input
-                          type="number"
-                          required
-                          min="0"
-                          placeholder="Contoh: 25000 (Input Bebas / Fleksibel)"
-                          value={transCommission}
-                          onChange={(e) => setTransCommission(e.target.value)}
-                          className="w-full px-4 py-2.5 bg-amber-50/60 border border-amber-300 rounded-xl focus:outline-none focus:ring-1 focus:ring-amber-500 text-sm font-bold text-amber-900"
-                        />
-                        <p className="text-[10px] text-gray-500 italic mt-0.5">
-                          💡 Staff Dina dapat mengisi nominal komisi secara bebas & fleksibel dalam Rupiah.
-                        </p>
                       </div>
 
                       {/* Catatan / Nota */}
@@ -3728,7 +3706,7 @@ export default function App() {
                     <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-3 border-b border-gray-100 pb-3">
                       <div>
                         <h3 className="font-serif text-lg font-bold text-natural-text-dark">Riwayat Transaksi Rekomendasi</h3>
-                        <p className="text-xs text-natural-text-muted">Total {referralTransactions.length} transaksi tercatat.</p>
+                        <p className="text-xs text-natural-text-muted">Total {referralTransactions.length} transaksi konsumen tercatat.</p>
                       </div>
 
                       <div className="relative w-full sm:w-64">
@@ -3761,7 +3739,6 @@ export default function App() {
                             );
                           })
                           .map(t => {
-                            const comm = typeof t.commissionAmount === 'number' ? t.commissionAmount : ((t.pointsEarned || 0) * 10000);
                             return (
                               <div
                                 key={`ref-tx-${t.id}`}
@@ -3790,10 +3767,8 @@ export default function App() {
 
                                 <div className="flex items-center justify-between sm:justify-end w-full sm:w-auto gap-4 pt-2 sm:pt-0 border-t sm:border-0 border-gray-200">
                                   <div className="text-left sm:text-right">
-                                    <p className="text-xs text-natural-text-muted">Total Tx: <span className="font-bold text-natural-text-dark">Rp {Number(t.amount).toLocaleString('id-ID')}</span></p>
-                                    <span className="text-xs font-bold text-emerald-800 bg-emerald-100 px-2.5 py-0.5 rounded-md inline-block mt-0.5">
-                                      Komisi: Rp {Number(comm).toLocaleString('id-ID')}
-                                    </span>
+                                    <p className="text-xs text-natural-text-muted">Nominal Transaksi Konsumen:</p>
+                                    <p className="text-sm font-serif font-black text-natural-text-dark">Rp {Number(t.amount).toLocaleString('id-ID')}</p>
                                   </div>
 
                                   <button
@@ -3872,9 +3847,9 @@ export default function App() {
                           const stats = partnerStatsMap[p.id!] || {
                             totalTxAmount: 0,
                             txCount: 0,
-                            totalCommissionEarned: 0,
-                            totalCommissionPaid: 0,
-                            remainingCommission: 0
+                            totalDeductedTxAmount: 0,
+                            remainingUnsettledTx: 0,
+                            totalCommissionPaid: 0
                           };
 
                           return (
@@ -3931,12 +3906,17 @@ export default function App() {
                                 </div>
 
                                 <div className="bg-amber-50/80 p-2.5 rounded-xl border border-amber-100">
-                                  <p className="text-[10px] text-amber-800 font-bold uppercase">Sisa Komisi Unpaid</p>
+                                  <p className="text-[10px] text-amber-800 font-bold uppercase">Sisa Tx Belum Diperhitungkan</p>
                                   <p className="font-serif font-black text-amber-700 text-sm">
-                                    Rp {stats.remainingCommission.toLocaleString('id-ID')}
+                                    Rp {stats.remainingUnsettledTx.toLocaleString('id-ID')}
                                   </p>
-                                  <p className="text-[9px] text-amber-600">Total komisi: Rp {stats.totalCommissionEarned.toLocaleString('id-ID')}</p>
+                                  <p className="text-[9px] text-amber-600">Sudah klaim: Rp {stats.totalDeductedTxAmount.toLocaleString('id-ID')}</p>
                                 </div>
+                              </div>
+
+                              <div className="text-[11px] text-emerald-700 bg-emerald-50/70 px-3 py-1.5 rounded-xl border border-emerald-100 flex justify-between items-center font-semibold">
+                                <span>Total Fee Diserahkan:</span>
+                                <span className="font-bold">Rp {stats.totalCommissionPaid.toLocaleString('id-ID')}</span>
                               </div>
 
                               {/* ACTION BUTTONS */}
@@ -3956,6 +3936,7 @@ export default function App() {
                                 <button
                                   onClick={() => {
                                     setRedeemPartnerId(p.id!);
+                                    setDeductedTxInput(stats.remainingUnsettledTx > 0 ? stats.remainingUnsettledTx.toString() : '');
                                     setRedeemRewardInput('');
                                     setRedeemNotesInput('');
                                     setShowRedeemModal(true);
@@ -3963,7 +3944,7 @@ export default function App() {
                                   className="px-3 py-2 font-bold text-xs rounded-xl transition-colors flex items-center gap-1 bg-emerald-600 hover:bg-emerald-700 text-white"
                                 >
                                   <Wallet className="w-3.5 h-3.5" />
-                                  Serahkan Komisi
+                                  Input Komisi / Fee
                                 </button>
                               </div>
                             </div>
@@ -3981,9 +3962,9 @@ export default function App() {
                     <div>
                       <h3 className="font-serif text-xl font-bold text-natural-text-dark flex items-center gap-2">
                         <Wallet className="w-5 h-5 text-emerald-600" />
-                        Histori Penyerahan & Pencairan Komisi Guide
+                        Histori Penyerahan & Pencairan Komisi / Fee Guide
                       </h3>
-                      <p className="text-xs text-natural-text-muted">Catatan pembayaran/pencairan komisi tunai kepada mitra pemberi rekomendasi.</p>
+                      <p className="text-xs text-natural-text-muted">Catatan pengurang transaksi dan pembayaran komisi tunai kepada mitra pemberi rekomendasi.</p>
                     </div>
 
                     <div className="flex items-center gap-2">
@@ -3998,6 +3979,7 @@ export default function App() {
                       <button
                         onClick={() => {
                           setRedeemPartnerId('');
+                          setDeductedTxInput('');
                           setRedeemRewardInput('');
                           setRedeemNotesInput('');
                           setShowRedeemModal(true);
@@ -4031,9 +4013,14 @@ export default function App() {
                               </span>
                             </div>
 
-                            <p className="text-sm font-bold text-natural-text-dark">
-                              Nominal Komisi Diserahkan: <span className="text-emerald-700 font-serif font-black text-base">Rp {Number(r.rewardAmount || 0).toLocaleString('id-ID')}</span>
-                            </p>
+                            <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-xs pt-1">
+                              <p className="text-gray-600">
+                                Transaksi Diperhitungkan (Pengurang): <span className="font-bold text-gray-900">Rp {Number(r.deductedTxAmount || 0).toLocaleString('id-ID')}</span>
+                              </p>
+                              <p className="text-emerald-900 font-bold">
+                                Fee Diserahkan: <span className="text-emerald-700 font-serif font-black text-base">Rp {Number(r.rewardAmount || 0).toLocaleString('id-ID')}</span>
+                              </p>
+                            </div>
                             {r.notes && (
                               <p className="text-xs text-natural-text-muted italic">
                                 📌 {r.notes}
@@ -4191,36 +4178,43 @@ export default function App() {
                           onChange={(e) => {
                             setRedeemPartnerId(e.target.value);
                             const pStats = partnerStatsMap[e.target.value];
-                            if (pStats && pStats.remainingCommission > 0) {
-                              setRedeemRewardInput(pStats.remainingCommission.toString());
+                            if (pStats && pStats.remainingUnsettledTx > 0) {
+                              setDeductedTxInput(pStats.remainingUnsettledTx.toString());
+                            } else {
+                              setDeductedTxInput('');
                             }
                           }}
                           className="w-full px-4 py-2.5 bg-gray-50 border border-natural-border rounded-xl focus:outline-none focus:ring-1 focus:ring-natural-primary text-sm font-semibold"
                         >
                           <option value="">-- Pilih Mitra --</option>
                           {referralPartners.map(p => {
-                            const remaining = partnerStatsMap[p.id!]?.remainingCommission || 0;
+                            const remaining = partnerStatsMap[p.id!]?.remainingUnsettledTx || 0;
                             return (
                               <option key={`redeem-opt-${p.id}`} value={p.id}>
-                                {p.name} ({p.phone}) — Sisa Komisi: Rp {remaining.toLocaleString('id-ID')}
+                                {p.name} ({p.phone}) — Belum Diperhitungkan: Rp {remaining.toLocaleString('id-ID')}
                               </option>
                             );
                           })}
                         </select>
                       </div>
 
-                      {/* Live Commission Info */}
+                      {/* Live Transaction Stats Info */}
                       {redeemPartnerId && partnerStatsMap[redeemPartnerId] && (
-                        <div className="p-3 bg-emerald-50 border border-emerald-200 rounded-xl flex items-center justify-between text-xs">
-                          <div>
-                            <p className="text-emerald-800 font-bold">Sisa Komisi Belum Dibayarkan</p>
-                            <p className="text-[10px] text-emerald-600">
-                              Total komisi hak mitra yang belum diserahkan.
-                            </p>
+                        <div className="p-3 bg-amber-50 border border-amber-200 rounded-xl space-y-1 text-xs">
+                          <div className="flex justify-between">
+                            <span className="text-gray-600">Total Transaksi Konsumen:</span>
+                            <span className="font-bold text-gray-900">Rp {partnerStatsMap[redeemPartnerId].totalTxAmount.toLocaleString('id-ID')}</span>
                           </div>
-                          <p className="text-base font-serif font-black text-emerald-700">
-                            Rp {partnerStatsMap[redeemPartnerId].remainingCommission.toLocaleString('id-ID')}
-                          </p>
+                          <div className="flex justify-between">
+                            <span className="text-gray-600">Sudah Diperhitungkan:</span>
+                            <span className="font-bold text-gray-900">Rp {partnerStatsMap[redeemPartnerId].totalDeductedTxAmount.toLocaleString('id-ID')}</span>
+                          </div>
+                          <div className="flex justify-between pt-1 border-t border-amber-200">
+                            <span className="font-bold text-amber-900">Sisa Belum Diperhitungkan:</span>
+                            <span className="font-serif font-black text-amber-800 text-sm">
+                              Rp {partnerStatsMap[redeemPartnerId].remainingUnsettledTx.toLocaleString('id-ID')}
+                            </span>
+                          </div>
                         </div>
                       )}
 
@@ -4236,18 +4230,42 @@ export default function App() {
                         />
                       </div>
 
-                      {/* Nominal Komisi Diberikan (Rp) */}
+                      {/* Nilai Transaksi Diperhitungkan (Pengurang Akumulasi) */}
                       <div className="space-y-1">
-                        <label className="text-xs font-black text-natural-text-muted uppercase tracking-wider">Nominal Komisi Diserahkan (Rp) *</label>
+                        <label className="text-xs font-black text-natural-text-muted uppercase tracking-wider text-amber-900">
+                          Nilai Transaksi Yang Diperhitungkan / Pengurang (Rp) *
+                        </label>
                         <input
                           type="number"
                           required
                           min="1"
-                          placeholder="Contoh: 50000"
+                          placeholder="Contoh: 1000000"
+                          value={deductedTxInput}
+                          onChange={(e) => setDeductedTxInput(e.target.value)}
+                          className="w-full px-4 py-2.5 bg-amber-50/60 border border-amber-300 rounded-xl focus:outline-none focus:ring-1 focus:ring-amber-500 text-sm font-bold text-amber-900"
+                        />
+                        <p className="text-[10px] text-gray-500 italic">
+                          💡 Nominal transaksi konsumen yang dijadikan acuan perhitungan komisi saat ini.
+                        </p>
+                      </div>
+
+                      {/* Nominal Komisi Diberikan (Rp) */}
+                      <div className="space-y-1">
+                        <label className="text-xs font-black text-natural-text-muted uppercase tracking-wider text-emerald-900">
+                          Nominal Fee / Komisi Diserahkan (Rp) *
+                        </label>
+                        <input
+                          type="number"
+                          required
+                          min="1"
+                          placeholder="Contoh: 100000 (Staff Input Manual)"
                           value={redeemRewardInput}
                           onChange={(e) => setRedeemRewardInput(e.target.value)}
-                          className="w-full px-4 py-2.5 bg-gray-50 border border-natural-border rounded-xl focus:outline-none focus:ring-1 focus:ring-natural-primary text-sm font-bold text-emerald-800"
+                          className="w-full px-4 py-2.5 bg-emerald-50/60 border border-emerald-300 rounded-xl focus:outline-none focus:ring-1 focus:ring-emerald-500 text-sm font-bold text-emerald-900"
                         />
+                        <p className="text-[10px] text-gray-500 italic">
+                          💡 Nominal rupiah komisi tunai/transfer yang diberikan secara manual oleh staff.
+                        </p>
                       </div>
 
                       {/* Catatan / Bukti */}
@@ -4255,7 +4273,7 @@ export default function App() {
                         <label className="text-xs font-black text-natural-text-muted uppercase tracking-wider">Catatan / Keterangan Penyerahan</label>
                         <input
                           type="text"
-                          placeholder="Contoh: Diserahkan tunai oleh Staff Dina"
+                          placeholder="Contoh: Fee 10% diserahkan tunai oleh Staff Dina"
                           value={redeemNotesInput}
                           onChange={(e) => setRedeemNotesInput(e.target.value)}
                           className="w-full px-4 py-2.5 bg-gray-50 border border-natural-border rounded-xl focus:outline-none focus:ring-1 focus:ring-natural-primary text-sm"

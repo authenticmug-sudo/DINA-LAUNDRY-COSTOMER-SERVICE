@@ -99,9 +99,9 @@ export interface ReferralTransaction {
   partnerPhone: string;
   date: string; // YYYY-MM-DD
   customerName: string;
-  amount: number; // Transaction value in Rp
-  commissionAmount: number; // Manual commission/fee in Rp entered by Staff Dina
-  pointsEarned?: number; // Optional legacy field
+  amount: number; // Transaction value in Rp (Nominal transaksi konsumen)
+  commissionAmount?: number; // Legacy optional field
+  pointsEarned?: number; // Legacy optional field
   notes?: string;
   createdAt: any;
 }
@@ -112,8 +112,9 @@ export interface ReferralRedemption {
   partnerName: string;
   partnerPhone: string;
   date: string; // YYYY-MM-DD
-  rewardAmount: number; // Disbursed commission/fee in Rp
-  pointsRedeemed?: number; // Optional legacy field
+  deductedTxAmount: number; // Pengurang nilai akumulasi transaksi (Rp) yang diperhitungkan
+  rewardAmount: number; // Nominal komisi / fee yang diserahkan (Rp) oleh staff
+  pointsRedeemed?: number; // Legacy optional field
   notes?: string;
   createdAt: any;
 }
