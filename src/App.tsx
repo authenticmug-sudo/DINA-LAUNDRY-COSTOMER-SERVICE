@@ -1,4 +1,6 @@
 import React, { useState, useEffect, useMemo, useRef } from 'react';
+import html2canvas from 'html2canvas';
+import jsPDF from 'jspdf';
 import { 
   Calendar, 
   User, 
@@ -32,7 +34,12 @@ import {
   ArrowUpRight,
   FileSpreadsheet,
   Sparkles,
-  Check
+  Check,
+  Copy,
+  FileText,
+  Bell,
+  Send,
+  MessageCircle
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { 
@@ -199,6 +206,17 @@ export default function App() {
   const [redeemNotesInput, setRedeemNotesInput] = useState('');
   const [isSavingRedemption, setIsSavingRedemption] = useState(false);
   const [showRedeemModal, setShowRedeemModal] = useState(false);
+
+  // Receipt Modal State & Actions
+  const [selectedRedemptionReceipt, setSelectedRedemptionReceipt] = useState<ReferralRedemption | null>(null);
+  const [showReceiptModal, setShowReceiptModal] = useState(false);
+  const [copiedWaText, setCopiedWaText] = useState(false);
+  const [isGeneratingPdf, setIsGeneratingPdf] = useState(false);
+
+  // Partner Reminder State
+  const [selectedReminderPartner, setSelectedReminderPartner] = useState<ReferralPartner | null>(null);
+  const [showReminderModal, setShowReminderModal] = useState(false);
+  const [copiedReminderWaText, setCopiedReminderWaText] = useState(false);
 
   // Search & Filters for Referral
   const [referralSearch, setReferralSearch] = useState('');
@@ -1566,6 +1584,210 @@ export default function App() {
     }
   };
 
+  const getWhatsAppShareUrl = (r: ReferralRedemption) => {
+    let cleanPhone = (r.partnerPhone || '').replace(/\D/g, '');
+    if (cleanPhone.startsWith('0')) {
+      cleanPhone = '62' + cleanPhone.slice(1);
+    }
+    const receiptNo = `INV-FEE-${(r.id || '').slice(-6).toUpperCase() || '001'}`;
+    const text = `*KUITANSI PENYERAHAN FEE GUIDE* 🧾
+--------------------------------------------
+*DINA LAUNDRY - SISTEM REFERRAL*
+
+*No. Invoice:* ${receiptNo}
+*Tanggal:* ${r.date}
+*Pemberi Rekomendasi:* ${r.partnerName} (${r.partnerPhone})
+
+*RINCIAN PENYERAHAN KOMISI:*
+• *Transaksi Diperhitungkan:* Rp ${Number(r.deductedTxAmount || 0).toLocaleString('id-ID')}
+• *NOMINAL FEE / KOMISI DISERAHKAN:* *Rp ${Number(r.rewardAmount || 0).toLocaleString('id-ID')}*
+• *Catatan / Keterangan:* ${r.notes || 'Penyerahan komisi tunai'}
+• *Status:* SUCCESS / LUNAS
+
+Terima kasih banyak atas kerja sama dan rekomendasi tamu / konsumen ke Dina Laundry! 🙏✨
+Salam hangat,
+*Staff Dina Laundry*`;
+
+    return `https://wa.me/${cleanPhone}?text=${encodeURIComponent(text)}`;
+  };
+
+  const copyWhatsAppText = (r: ReferralRedemption) => {
+    const receiptNo = `INV-FEE-${(r.id || '').slice(-6).toUpperCase() || '001'}`;
+    const text = `*KUITANSI PENYERAHAN FEE GUIDE* 🧾
+--------------------------------------------
+*DINA LAUNDRY - SISTEM REFERRAL*
+
+*No. Invoice:* ${receiptNo}
+*Tanggal:* ${r.date}
+*Pemberi Rekomendasi:* ${r.partnerName} (${r.partnerPhone})
+
+*RINCIAN PENYERAHAN KOMISI:*
+• *Transaksi Diperhitungkan:* Rp ${Number(r.deductedTxAmount || 0).toLocaleString('id-ID')}
+• *NOMINAL FEE / KOMISI DISERAHKAN:* *Rp ${Number(r.rewardAmount || 0).toLocaleString('id-ID')}*
+• *Catatan / Keterangan:* ${r.notes || 'Penyerahan komisi tunai'}
+• *Status:* SUCCESS / LUNAS
+
+Terima kasih banyak atas kerja sama dan rekomendasi tamu / konsumen ke Dina Laundry! 🙏✨
+Salam hangat,
+*Staff Dina Laundry*`;
+
+    navigator.clipboard.writeText(text);
+    setCopiedWaText(true);
+    setTimeout(() => setCopiedWaText(false), 2000);
+  };
+
+  const handleDownloadPdf = async (r: ReferralRedemption) => {
+    const element = document.getElementById('printable-receipt-area');
+    if (!element) return;
+    try {
+      setIsGeneratingPdf(true);
+      const canvas = await html2canvas(element, {
+        scale: 2,
+        useCORS: true,
+        logging: false,
+        backgroundColor: '#ffffff'
+      });
+      const imgData = canvas.toDataURL('image/png');
+      const pdf = new jsPDF('p', 'mm', 'a4');
+      const pdfWidth = pdf.internal.pageSize.getWidth();
+      const pdfHeight = (canvas.height * pdfWidth) / canvas.width;
+
+      pdf.addImage(imgData, 'PNG', 0, 10, pdfWidth, Math.min(pdfHeight, 270));
+      const invNo = (r.id || '001').slice(-6).toUpperCase();
+      pdf.save(`Kuitansi-Fee-DinaLaundry-${invNo}.pdf`);
+    } catch (err) {
+      console.error('Gagal membuat file PDF:', err);
+      alert('Gagal mengunduh PDF secara otomatis. Mencoba membuka jendela cetak...');
+      handlePrintInNewWindow(r);
+    } finally {
+      setIsGeneratingPdf(false);
+    }
+  };
+
+  const handlePrintInNewWindow = (r: ReferralRedemption) => {
+    const element = document.getElementById('printable-receipt-area');
+    if (!element) {
+      window.print();
+      return;
+    }
+    const invNo = (r.id || '001').slice(-6).toUpperCase();
+    const printWindow = window.open('', '_blank', 'width=800,height=900');
+    if (printWindow) {
+      printWindow.document.write(`
+        <!DOCTYPE html>
+        <html>
+          <head>
+            <title>Kuitansi Fee Dina Laundry - INV-FEE-${invNo}</title>
+            <style>
+              body { font-family: system-ui, -apple-system, sans-serif; padding: 24px; color: #1f2937; background: #fff; }
+              #printable-receipt-area { max-width: 600px; margin: 0 auto; border: 1px solid #e5e7eb; padding: 24px; border-radius: 16px; }
+              .bg-white { background: #fff; }
+              .p-6, .p-8 { padding: 20px; }
+              .rounded-2xl { border-radius: 16px; }
+              .rounded-xl { border-radius: 12px; }
+              .rounded-lg { border-radius: 8px; }
+              .border { border: 1px solid #e5e7eb; }
+              .border-b-2 { border-bottom: 2px solid #059669; }
+              .border-b { border-bottom: 1px solid #e5e7eb; }
+              .border-t { border-top: 1px solid #e5e7eb; }
+              .text-emerald-900 { color: #064e3b; }
+              .text-emerald-800 { color: #065f46; }
+              .text-emerald-700 { color: #047857; }
+              .bg-emerald-100 { background-color: #d1fae5; }
+              .bg-emerald-50 { background-color: #ecfdf5; }
+              .bg-amber-100 { background-color: #fef3c7; }
+              .text-amber-900 { color: #78350f; }
+              .bg-gray-50 { background-color: #f9fafb; }
+              .flex { display: flex; }
+              .justify-between { justify-content: space-between; }
+              .items-start { align-items: flex-start; }
+              .items-center { align-items: center; }
+              .justify-center { justify-content: center; }
+              .text-right { text-align: right; }
+              .text-center { text-align: center; }
+              .font-bold { font-weight: 700; }
+              .font-black { font-weight: 900; }
+              .font-medium { font-weight: 500; }
+              .text-xs { font-size: 12px; }
+              .text-sm { font-size: 14px; }
+              .text-base { font-size: 16px; }
+              .text-lg { font-size: 18px; }
+              .text-xl { font-size: 20px; }
+              .grid { display: grid; }
+              .grid-cols-2 { grid-template-columns: 1fr 1fr; }
+              .gap-2 { gap: 8px; }
+              .gap-4 { gap: 16px; }
+              .space-y-6 > * + * { margin-top: 24px; }
+              .space-y-2 > * + * { margin-top: 8px; }
+              .space-y-1 > * + * { margin-top: 4px; }
+              .italic { font-style: italic; }
+              .no-print { display: none !important; }
+              @media print {
+                body { padding: 0; }
+                #printable-receipt-area { border: none; padding: 0; }
+              }
+            </style>
+          </head>
+          <body>
+            ${element.outerHTML}
+            <script>
+              setTimeout(() => {
+                window.print();
+              }, 400);
+            </script>
+          </body>
+        </html>
+      `);
+      printWindow.document.close();
+    } else {
+      window.print();
+    }
+  };
+
+  const getPartnerReminderText = (partner: ReferralPartner) => {
+    const stats = partnerStatsMap[partner.id!] || {
+      totalTxAmount: 0,
+      txCount: 0,
+      totalDeductedTxAmount: 0,
+      remainingUnsettledTx: 0,
+      totalCommissionPaid: 0
+    };
+
+    return `*REMINDER REKOMENDASI DINA LAUNDRY* 🧺✨
+------------------------------------------------
+Halo *${partner.name}* (${partner.role || 'Pemberi Rekomendasi'}) 👋,
+
+Salam hangat dari *Dina Laundry*! 
+
+Terima kasih banyak atas kerja sama dan kepercayaannya dalam merekomendasikan konsumen / tamu Anda ke tempat kami. 
+
+Berikut ringkasan akumulasi rekomendasi Anda saat ini:
+📊 *Total Rekomendasi Konsumen:* Rp ${stats.totalTxAmount.toLocaleString('id-ID')} (${stats.txCount} x transaksi)
+⏳ *Sisa Transaksi Belum Diperhitungkan:* *Rp ${stats.remainingUnsettledTx.toLocaleString('id-ID')}*
+✅ *Sudah Diperhitungkan / Diklaim:* Rp ${stats.totalDeductedTxAmount.toLocaleString('id-ID')}
+💰 *Total Fee / Komisi Diserahkan:* Rp ${stats.totalCommissionPaid.toLocaleString('id-ID')}
+
+Yuk tingkatkan terus rekomendasi customer Anda ke Dina Laundry agar akumulasi transaksi makin besar & bonus komisi yang bisa diklaim semakin melimpah! 🚀💸
+
+Jika ada konsumen atau tamu rombongan yang butuh laundry cepat & bersih, langsung hubungi Dina Laundry ya. Terima kasih banyak! 🙏✨`;
+  };
+
+  const getPartnerReminderWaUrl = (partner: ReferralPartner) => {
+    let cleanPhone = (partner.phone || '').replace(/\D/g, '');
+    if (cleanPhone.startsWith('0')) {
+      cleanPhone = '62' + cleanPhone.slice(1);
+    }
+    const text = getPartnerReminderText(partner);
+    return `https://wa.me/${cleanPhone}?text=${encodeURIComponent(text)}`;
+  };
+
+  const copyPartnerReminderText = (partner: ReferralPartner) => {
+    const text = getPartnerReminderText(partner);
+    navigator.clipboard.writeText(text);
+    setCopiedReminderWaText(true);
+    setTimeout(() => setCopiedReminderWaText(false), 2000);
+  };
+
   const handleSaveRedemption = async (e: React.FormEvent) => {
     e.preventDefault();
     
@@ -1593,7 +1815,7 @@ export default function App() {
     setSuccessMsg('');
 
     try {
-      await addDoc(collection(db, 'referral_redemptions'), {
+      const docRef = await addDoc(collection(db, 'referral_redemptions'), {
         partnerId: partner.id,
         partnerName: partner.name,
         partnerPhone: partner.phone,
@@ -1604,12 +1826,28 @@ export default function App() {
         createdAt: serverTimestamp()
       });
 
+      const newRedemption: ReferralRedemption = {
+        id: docRef.id,
+        partnerId: partner.id,
+        partnerName: partner.name,
+        partnerPhone: partner.phone,
+        date: redeemDate,
+        deductedTxAmount: deductedVal,
+        rewardAmount: rewardVal,
+        notes: redeemNotesInput.trim(),
+        createdAt: new Date()
+      };
+
       setSuccessMsg(`Penyerahan komisi Rp ${rewardVal.toLocaleString('id-ID')} (Pengurang Transaksi Rp ${deductedVal.toLocaleString('id-ID')}) untuk ${partner.name} berhasil dicatat!`);
 
       setDeductedTxInput('');
       setRedeemRewardInput('');
       setRedeemNotesInput('');
       setShowRedeemModal(false);
+
+      // Open receipt modal automatically
+      setSelectedRedemptionReceipt(newRedemption);
+      setShowReceiptModal(true);
     } catch (err: any) {
       setErrorMsg(err.message || 'Gagal menyimpan penyerahan komisi.');
     } finally {
@@ -3811,6 +4049,20 @@ export default function App() {
 
                       <button
                         onClick={() => {
+                          if (referralPartners.length > 0) {
+                            setSelectedReminderPartner(referralPartners[0]);
+                          }
+                          setShowReminderModal(true);
+                        }}
+                        className="px-3 py-2 bg-amber-50 hover:bg-amber-100 text-amber-900 border border-amber-300 font-bold text-xs rounded-xl flex items-center gap-1.5 shadow-2xs transition-colors shrink-0"
+                        title="Kirim Pesan Reminder & Motivasi Rekomendasi"
+                      >
+                        <Bell className="w-4 h-4 text-amber-600 animate-pulse" />
+                        <span>Kirim Reminder WA</span>
+                      </button>
+
+                      <button
+                        onClick={() => {
                           setEditingPartnerId(null);
                           setPartnerName('');
                           setPartnerPhone('');
@@ -3920,31 +4172,44 @@ export default function App() {
                               </div>
 
                               {/* ACTION BUTTONS */}
-                              <div className="flex gap-2 pt-1">
-                                <button
-                                  onClick={() => {
-                                    setTransPartnerId(p.id!);
-                                    setTransPartnerInput(p.name);
-                                    setReferralSubTab('transactions');
-                                  }}
-                                  className="flex-1 py-2 bg-gray-100 hover:bg-gray-200 text-natural-text-dark font-bold text-xs rounded-xl transition-colors flex items-center justify-center gap-1"
-                                >
-                                  <Plus className="w-3.5 h-3.5" />
-                                  Input Transaksi
-                                </button>
+                              <div className="space-y-2 pt-1">
+                                <div className="flex gap-2">
+                                  <button
+                                    onClick={() => {
+                                      setTransPartnerId(p.id!);
+                                      setTransPartnerInput(p.name);
+                                      setReferralSubTab('transactions');
+                                    }}
+                                    className="flex-1 py-2 bg-gray-100 hover:bg-gray-200 text-natural-text-dark font-bold text-xs rounded-xl transition-colors flex items-center justify-center gap-1"
+                                  >
+                                    <Plus className="w-3.5 h-3.5" />
+                                    Input Transaksi
+                                  </button>
+
+                                  <button
+                                    onClick={() => {
+                                      setRedeemPartnerId(p.id!);
+                                      setDeductedTxInput(stats.remainingUnsettledTx > 0 ? stats.remainingUnsettledTx.toString() : '');
+                                      setRedeemRewardInput('');
+                                      setRedeemNotesInput('');
+                                      setShowRedeemModal(true);
+                                    }}
+                                    className="px-3 py-2 font-bold text-xs rounded-xl transition-colors flex items-center gap-1 bg-emerald-600 hover:bg-emerald-700 text-white"
+                                  >
+                                    <Wallet className="w-3.5 h-3.5" />
+                                    Input Komisi / Fee
+                                  </button>
+                                </div>
 
                                 <button
                                   onClick={() => {
-                                    setRedeemPartnerId(p.id!);
-                                    setDeductedTxInput(stats.remainingUnsettledTx > 0 ? stats.remainingUnsettledTx.toString() : '');
-                                    setRedeemRewardInput('');
-                                    setRedeemNotesInput('');
-                                    setShowRedeemModal(true);
+                                    setSelectedReminderPartner(p);
+                                    setShowReminderModal(true);
                                   }}
-                                  className="px-3 py-2 font-bold text-xs rounded-xl transition-colors flex items-center gap-1 bg-emerald-600 hover:bg-emerald-700 text-white"
+                                  className="w-full py-2 bg-amber-50 hover:bg-amber-100 text-amber-900 border border-amber-200 font-bold text-xs rounded-xl transition-colors flex items-center justify-center gap-1.5 shadow-2xs"
                                 >
-                                  <Wallet className="w-3.5 h-3.5" />
-                                  Input Komisi / Fee
+                                  <Bell className="w-3.5 h-3.5 text-amber-600" />
+                                  <span>Kirim Reminder WA (Status Sisa & Motivasi)</span>
                                 </button>
                               </div>
                             </div>
@@ -4028,7 +4293,19 @@ export default function App() {
                             )}
                           </div>
 
-                          <div className="flex items-center justify-between sm:justify-end w-full sm:w-auto gap-4">
+                          <div className="flex items-center justify-between sm:justify-end w-full sm:w-auto gap-2">
+                            <button
+                              onClick={() => {
+                                setSelectedRedemptionReceipt(r);
+                                setShowReceiptModal(true);
+                              }}
+                              className="px-3 py-1.5 bg-emerald-100 hover:bg-emerald-200 text-emerald-900 font-bold text-xs rounded-xl transition-colors flex items-center gap-1.5 shadow-2xs"
+                              title="Lihat / Cetak / Share Kuitansi Invoice"
+                            >
+                              <FileText className="w-3.5 h-3.5 text-emerald-700" />
+                              <span>Kuitansi / Invoice</span>
+                            </button>
+
                             <button
                               onClick={() => handleDeleteRedemption(r.id!)}
                               className="p-2 text-red-500 hover:bg-red-100 rounded-lg transition-colors"
@@ -4301,6 +4578,302 @@ export default function App() {
                         </button>
                       </div>
                     </form>
+                  </div>
+                </div>
+              )}
+
+              {/* MODAL: BUKTI KUITANSI INVOICE PENYERAHAN KOMISI (PRINT PDF & WA SHARE) */}
+              {showReceiptModal && selectedRedemptionReceipt && (
+                <div className="fixed inset-0 bg-black/60 backdrop-blur-xs flex items-center justify-center p-4 z-50 animate-fade-in overflow-y-auto">
+                  <div className="bg-white rounded-2xl max-w-lg w-full p-6 sm:p-8 space-y-6 border border-natural-border shadow-2xl relative my-8">
+                    
+                    {/* Modal Header Controls (no-print) */}
+                    <div className="flex justify-between items-center pb-4 border-b border-gray-100 no-print">
+                      <div className="flex items-center gap-2">
+                        <FileText className="w-5 h-5 text-emerald-600" />
+                        <h3 className="font-serif font-bold text-lg text-natural-text-dark">
+                          Kuitansi Bukti Penyerahan Fee
+                        </h3>
+                      </div>
+                      <button
+                        onClick={() => setShowReceiptModal(false)}
+                        className="p-1.5 text-gray-400 hover:text-gray-600 hover:bg-gray-100 rounded-lg transition-colors"
+                      >
+                        <X className="w-5 h-5" />
+                      </button>
+                    </div>
+
+                    {/* PRINTABLE RECEIPT CONTENT CONTAINER */}
+                    <div id="printable-receipt-area" className="bg-white p-6 sm:p-8 rounded-2xl border border-gray-200 space-y-6 text-gray-800 shadow-xs">
+                      
+                      {/* Invoice Branding & Status Header */}
+                      <div className="flex justify-between items-start border-b-2 border-emerald-600 pb-4">
+                        <div>
+                          <h2 className="font-serif font-black text-xl text-emerald-900 tracking-tight">DINA LAUNDRY</h2>
+                          <p className="text-[11px] text-gray-600 font-medium">Sistem Mitra & Tour Guide Referral</p>
+                          <p className="text-[10px] text-gray-400 mt-0.5">Bukti Resmi Penyerahan Fee Komisi</p>
+                        </div>
+                        <div className="text-right">
+                          <span className="inline-block px-2.5 py-1 bg-emerald-100 text-emerald-800 text-[10px] font-black uppercase tracking-wider rounded-md mb-1">
+                            ✓ LUNAS / DISERAHKAN
+                          </span>
+                          <p className="text-xs font-mono font-bold text-gray-700">
+                            INV-FEE-{(selectedRedemptionReceipt.id || '001').slice(-6).toUpperCase()}
+                          </p>
+                          <p className="text-[11px] text-gray-500">Tgl: {selectedRedemptionReceipt.date}</p>
+                        </div>
+                      </div>
+
+                      {/* Info Penerima / Mitra */}
+                      <div className="bg-gray-50 p-4 rounded-xl border border-gray-200/80 space-y-2 text-xs">
+                        <p className="text-[10px] uppercase tracking-wider font-bold text-gray-400">Diberikan Kepada (Pemberi Rekomendasi):</p>
+                        <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                          <div>
+                            <p className="text-xs font-bold text-gray-900">{selectedRedemptionReceipt.partnerName}</p>
+                            <p className="text-[11px] text-gray-600">{selectedRedemptionReceipt.partnerPhone}</p>
+                          </div>
+                          <div className="text-left sm:text-right">
+                            <span className="text-[10px] bg-amber-100 text-amber-900 px-2 py-0.5 rounded-full font-bold">
+                              Mitra / Tour Guide
+                            </span>
+                          </div>
+                        </div>
+                      </div>
+
+                      {/* Rincian Perhitungan Fee */}
+                      <div className="space-y-2">
+                        <p className="text-[10px] uppercase tracking-wider font-bold text-gray-400">Rincian Perhitungan Fee Komisi:</p>
+                        <div className="border border-gray-200 rounded-xl overflow-hidden text-xs">
+                          <div className="flex justify-between items-center p-3 bg-gray-50 border-b border-gray-200">
+                            <span className="text-gray-600 font-medium">Nilai Transaksi Konsumen Diperhitungkan</span>
+                            <span className="font-bold text-gray-900">Rp {Number(selectedRedemptionReceipt.deductedTxAmount || 0).toLocaleString('id-ID')}</span>
+                          </div>
+                          <div className="flex justify-between items-center p-3.5 bg-emerald-50/80 text-emerald-950 font-bold border-b border-gray-200">
+                            <span className="text-xs">Nominal Fee / Komisi Diserahkan</span>
+                            <span className="text-base font-serif font-black text-emerald-700">Rp {Number(selectedRedemptionReceipt.rewardAmount || 0).toLocaleString('id-ID')}</span>
+                          </div>
+                        </div>
+                      </div>
+
+                      {/* Catatan / Keterangan */}
+                      <div className="text-xs space-y-1">
+                        <p className="text-[10px] uppercase tracking-wider font-bold text-gray-400">Catatan / Keterangan:</p>
+                        <p className="bg-gray-50 p-3 rounded-lg border border-gray-100 italic text-gray-600">
+                          {selectedRedemptionReceipt.notes || 'Penyerahan fee/komisi tunai diserahkan oleh Staff Dina Laundry.'}
+                        </p>
+                      </div>
+
+                      {/* Tanda Tangan Digital Block */}
+                      <div className="pt-6 border-t border-gray-200 grid grid-cols-2 gap-4 text-center text-xs">
+                        <div>
+                          <p className="text-[10px] text-gray-400 font-bold">Diserahkan Oleh (Staff):</p>
+                          <div className="h-12 flex items-end justify-center">
+                            <p className="font-bold text-gray-800 border-b border-gray-400 px-4 pb-0.5 inline-block">Staff Dina Laundry</p>
+                          </div>
+                        </div>
+                        <div>
+                          <p className="text-[10px] text-gray-400 font-bold">Diterima Oleh (Guide/Mitra):</p>
+                          <div className="h-12 flex items-end justify-center">
+                            <p className="font-bold text-gray-800 border-b border-gray-400 px-4 pb-0.5 inline-block">{selectedRedemptionReceipt.partnerName}</p>
+                          </div>
+                        </div>
+                      </div>
+
+                      <p className="text-[9px] text-center text-gray-400 italic pt-2">
+                        Terima kasih atas rekomendasi dan kemitraan dengan Dina Laundry. Dokumen kuitansi ini sah sebagai bukti penyerahan komisi.
+                      </p>
+                    </div>
+
+                    {/* FOOTER ACTIONS (no-print) */}
+                    <div className="space-y-3 no-print pt-2 border-t border-gray-100">
+                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                        {/* Download PDF Button */}
+                        <button
+                          onClick={() => handleDownloadPdf(selectedRedemptionReceipt)}
+                          disabled={isGeneratingPdf}
+                          className="py-2.5 px-4 bg-emerald-700 hover:bg-emerald-800 text-white font-bold text-xs rounded-xl flex items-center justify-center gap-2 shadow-sm transition-colors disabled:opacity-50"
+                        >
+                          {isGeneratingPdf ? (
+                            <Loader2 className="w-4 h-4 animate-spin" />
+                          ) : (
+                            <Download className="w-4 h-4" />
+                          )}
+                          <span>{isGeneratingPdf ? 'Membuat PDF...' : 'Unduh File PDF'}</span>
+                        </button>
+
+                        {/* Print in New Window / Popup Button */}
+                        <button
+                          onClick={() => handlePrintInNewWindow(selectedRedemptionReceipt)}
+                          className="py-2.5 px-4 bg-gray-800 hover:bg-gray-900 text-white font-bold text-xs rounded-xl flex items-center justify-center gap-2 shadow-sm transition-colors"
+                        >
+                          <Printer className="w-4 h-4" />
+                          <span>Cetak (Jendela Baru)</span>
+                        </button>
+                      </div>
+
+                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                        {/* WhatsApp Share Button */}
+                        <a
+                          href={getWhatsAppShareUrl(selectedRedemptionReceipt)}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="py-2.5 px-4 bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-xs rounded-xl flex items-center justify-center gap-2 shadow-sm transition-colors"
+                        >
+                          <Share2 className="w-4 h-4" />
+                          <span>Kirim via WhatsApp</span>
+                        </a>
+
+                        <button
+                          onClick={() => copyWhatsAppText(selectedRedemptionReceipt)}
+                          className="py-2.5 px-4 bg-emerald-50 hover:bg-emerald-100 text-emerald-800 font-bold text-xs rounded-xl flex items-center justify-center gap-1.5 border border-emerald-200 transition-colors"
+                        >
+                          {copiedWaText ? <Check className="w-3.5 h-3.5 text-emerald-600" /> : <Copy className="w-3.5 h-3.5" />}
+                          <span>{copiedWaText ? 'Teks WA Tersalin!' : 'Salin Teks WA'}</span>
+                        </button>
+                      </div>
+
+                      <div className="flex justify-end pt-1">
+                        <button
+                          onClick={() => setShowReceiptModal(false)}
+                          className="w-full py-2 bg-gray-100 hover:bg-gray-200 text-gray-700 font-bold text-xs rounded-xl transition-colors"
+                        >
+                          Tutup Kuitansi
+                        </button>
+                      </div>
+                    </div>
+
+                  </div>
+                </div>
+              )}
+
+              {/* MODAL: REMINDER REKOMENDASI MITRA VIA WHATSAPP */}
+              {showReminderModal && (
+                <div className="fixed inset-0 bg-black/60 backdrop-blur-xs flex items-center justify-center p-4 z-50 animate-fade-in overflow-y-auto">
+                  <div className="bg-white rounded-2xl max-w-lg w-full p-6 sm:p-8 space-y-6 border border-natural-border shadow-2xl relative my-8">
+                    
+                    <div className="flex justify-between items-center pb-4 border-b border-gray-100">
+                      <div className="flex items-center gap-2">
+                        <Bell className="w-5 h-5 text-amber-600 animate-bounce" />
+                        <h3 className="font-serif font-bold text-lg text-natural-text-dark">
+                          Kirim Reminder & Motivasi Mitra
+                        </h3>
+                      </div>
+                      <button
+                        onClick={() => {
+                          setShowReminderModal(false);
+                          setSelectedReminderPartner(null);
+                        }}
+                        className="p-1.5 text-gray-400 hover:text-gray-600 hover:bg-gray-100 rounded-lg transition-colors"
+                      >
+                        <X className="w-5 h-5" />
+                      </button>
+                    </div>
+
+                    <div className="space-y-4 text-xs">
+                      {/* Select Partner */}
+                      <div className="space-y-1">
+                        <label className="text-xs font-bold text-gray-700">Pilih Mitra / Pemberi Rekomendasi:</label>
+                        <select
+                          value={selectedReminderPartner?.id || ''}
+                          onChange={(e) => {
+                            const found = referralPartners.find(p => p.id === e.target.value);
+                            setSelectedReminderPartner(found || null);
+                          }}
+                          className="w-full px-3 py-2 bg-gray-50 border border-natural-border rounded-xl font-medium focus:outline-none focus:ring-1 focus:ring-natural-primary"
+                        >
+                          <option value="">-- Pilih Mitra --</option>
+                          {referralPartners.map(p => (
+                            <option key={`rem-opt-${p.id}`} value={p.id}>
+                              {p.name} ({p.role || 'Mitra'}) - {p.phone}
+                            </option>
+                          ))}
+                        </select>
+                      </div>
+
+                      {selectedReminderPartner ? (
+                        <>
+                          {/* Partner Stats Card Preview */}
+                          {(() => {
+                            const stats = partnerStatsMap[selectedReminderPartner.id!] || {
+                              totalTxAmount: 0,
+                              txCount: 0,
+                              totalDeductedTxAmount: 0,
+                              remainingUnsettledTx: 0,
+                              totalCommissionPaid: 0
+                            };
+                            return (
+                              <div className="bg-amber-50/80 p-4 rounded-xl border border-amber-200 space-y-3 text-amber-950">
+                                <div className="flex justify-between items-center">
+                                  <span className="font-bold text-xs">{selectedReminderPartner.name}</span>
+                                  <span className="text-[10px] bg-amber-200 text-amber-900 px-2 py-0.5 rounded-full font-bold">
+                                    {selectedReminderPartner.role || 'Mitra'}
+                                  </span>
+                                </div>
+
+                                <div className="grid grid-cols-2 gap-2 text-xs">
+                                  <div className="bg-white/80 p-2.5 rounded-lg border border-amber-100">
+                                    <p className="text-[9px] text-gray-500 font-bold uppercase">Total Rekomendasi</p>
+                                    <p className="font-bold text-gray-900">Rp {stats.totalTxAmount.toLocaleString('id-ID')}</p>
+                                    <p className="text-[9px] text-gray-400">{stats.txCount} x transaksi</p>
+                                  </div>
+                                  <div className="bg-emerald-50/90 p-2.5 rounded-lg border border-emerald-200">
+                                    <p className="text-[9px] text-emerald-800 font-bold uppercase">Sisa Belum Diklaim</p>
+                                    <p className="font-bold text-emerald-900">Rp {stats.remainingUnsettledTx.toLocaleString('id-ID')}</p>
+                                    <p className="text-[9px] text-emerald-700">Sudah klaim: Rp {stats.totalDeductedTxAmount.toLocaleString('id-ID')}</p>
+                                  </div>
+                                </div>
+                              </div>
+                            );
+                          })()}
+
+                          {/* Preview Message Box */}
+                          <div className="space-y-1">
+                            <label className="text-xs font-bold text-gray-700">Pratinjau Pesan WhatsApp:</label>
+                            <div className="bg-emerald-50/50 p-3.5 rounded-xl border border-emerald-200 text-gray-800 text-[11px] leading-relaxed whitespace-pre-wrap font-sans max-h-52 overflow-y-auto">
+                              {getPartnerReminderText(selectedReminderPartner)}
+                            </div>
+                          </div>
+
+                          {/* Action Buttons */}
+                          <div className="space-y-2 pt-2">
+                            <a
+                              href={getPartnerReminderWaUrl(selectedReminderPartner)}
+                              target="_blank"
+                              rel="noopener noreferrer"
+                              className="w-full py-3 bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-xs rounded-xl flex items-center justify-center gap-2 shadow-sm transition-colors"
+                            >
+                              <Share2 className="w-4 h-4" />
+                              <span>Kirim via WhatsApp Sekarang</span>
+                            </a>
+
+                            <div className="flex gap-2">
+                              <button
+                                onClick={() => copyPartnerReminderText(selectedReminderPartner)}
+                                className="flex-1 py-2 bg-gray-100 hover:bg-gray-200 text-gray-800 font-bold text-xs rounded-xl flex items-center justify-center gap-1.5 transition-colors"
+                              >
+                                {copiedReminderWaText ? <Check className="w-3.5 h-3.5 text-emerald-600" /> : <Copy className="w-3.5 h-3.5" />}
+                                {copiedReminderWaText ? 'Teks WhatsApp Tersalin!' : 'Salin Pesan WA'}
+                              </button>
+
+                              <button
+                                onClick={() => {
+                                  setShowReminderModal(false);
+                                  setSelectedReminderPartner(null);
+                                }}
+                                className="px-5 py-2 bg-gray-100 hover:bg-gray-200 text-gray-600 font-bold text-xs rounded-xl transition-colors"
+                              >
+                                Tutup
+                              </button>
+                            </div>
+                          </div>
+                        </>
+                      ) : (
+                        <div className="py-8 text-center text-gray-400 italic">
+                          Silakan pilih salah satu mitra di atas untuk menyiapkan pesan reminder.
+                        </div>
+                      )}
+                    </div>
+
                   </div>
                 </div>
               )}

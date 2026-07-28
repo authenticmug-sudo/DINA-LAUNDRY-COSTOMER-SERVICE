@@ -28,3 +28,29 @@
     @apply text-natural-sidebar-link font-medium flex items-center p-3 rounded-xl transition-all;
   }
 }
+
+@media print {
+  body {
+    background: white !important;
+    color: black !important;
+  }
+  body * {
+    visibility: hidden;
+  }
+  #printable-receipt-area, #printable-receipt-area * {
+    visibility: visible;
+  }
+  #printable-receipt-area {
+    position: absolute;
+    left: 0;
+    top: 0;
+    width: 100%;
+    margin: 0;
+    padding: 24px;
+    box-shadow: none !important;
+    border: 1px solid #ccc !important;
+  }
+  .no-print {
+    display: none !important;
+  }
+}
